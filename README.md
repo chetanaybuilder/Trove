@@ -343,4 +343,4 @@ This repository does not currently have an open-source license specified. All ri
 ## Author
 
 **Chetanay Batra**  
-Full-Stack Developer & Software Engineer
+A 16 years old future AI founder
