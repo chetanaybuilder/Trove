@@ -5,6 +5,14 @@
 
 
 // =========================================================
+// 0. BACKEND CONFIGURATION
+// =========================================================
+
+const API_BASE_URL =
+    "https://trove-backend-ea57.onrender.com";
+
+
+// =========================================================
 // 1. ELEMENTS
 // =========================================================
 
@@ -71,7 +79,6 @@ if (menuBtn && mainNav) {
                     "mobile-open"
                 );
 
-
             menuBtn.setAttribute(
                 "aria-expanded",
                 String(isOpen)
@@ -119,7 +126,6 @@ if (googleLogin) {
                 "loading"
             );
 
-
             googleLogin.textContent =
                 "Connecting...";
 
@@ -151,7 +157,6 @@ async function summarizeEmails() {
 
     if (!summarizeBtn) return;
 
-
     setLoadingState(true);
 
 
@@ -159,9 +164,12 @@ async function summarizeEmails() {
 
         const response =
             await fetch(
-                "/summarize",
+                `${API_BASE_URL}/summarize`,
                 {
                     method: "POST",
+
+                    credentials: "include",
+
                     headers: {
                         "Content-Type":
                             "application/json"
@@ -195,7 +203,6 @@ async function summarizeEmails() {
 
         finishProgress();
 
-
         await sleep(350);
 
 
@@ -211,12 +218,9 @@ async function summarizeEmails() {
 
         updateFilterButtons();
 
-
         renderEmails();
 
-
         showElement(results);
-
 
         scrollToResults();
 
@@ -273,12 +277,15 @@ function setLoadingState(
         }
 
 
-        summarizeBtn.disabled =
-            true;
+        if (summarizeBtn) {
 
+            summarizeBtn.disabled =
+                true;
 
-        summarizeBtn.innerHTML =
-            "<span>✦</span> Analyzing...";
+            summarizeBtn.innerHTML =
+                "<span>✦</span> Analyzing...";
+
+        }
 
 
         startProgress();
@@ -302,12 +309,15 @@ function setLoadingState(
         }
 
 
-        summarizeBtn.disabled =
-            false;
+        if (summarizeBtn) {
 
+            summarizeBtn.disabled =
+                false;
 
-        summarizeBtn.innerHTML =
-            "<span>✦</span> Analyze latest emails";
+            summarizeBtn.innerHTML =
+                "<span>✦</span> Analyze latest emails";
+
+        }
 
     }
 
@@ -339,26 +349,32 @@ function startProgress() {
 
 
     const stages = [
+
         {
             value: 20,
             text: "Reading your emails..."
         },
+
         {
             value: 42,
             text: "Preparing email content..."
         },
+
         {
             value: 63,
             text: "Trove is thinking..."
         },
+
         {
             value: 78,
             text: "Building your inbox..."
         },
+
         {
             value: 88,
             text: "Almost there..."
         }
+
     ];
 
 
@@ -776,9 +792,11 @@ async function removeEmail(
 
         const response =
             await fetch(
-                `/summaries/${summaryId}`,
+                `${API_BASE_URL}/summaries/${summaryId}`,
                 {
-                    method: "DELETE"
+                    method: "DELETE",
+
+                    credentials: "include"
                 }
             );
 
@@ -893,7 +911,6 @@ if (categoryFilter) {
 
 
             updateFilterButtons();
-
 
             renderEmails();
 
@@ -1153,7 +1170,7 @@ function getFriendlyError(
 
         return (
             "Trove couldn't connect to Flask. "
-            + "Make sure the server is running."
+            + "Make sure the backend is running."
         );
 
     }
@@ -1271,7 +1288,12 @@ async function loadSavedSummaries() {
 
         const response =
             await fetch(
-                "/summaries"
+                `${API_BASE_URL}/summaries`,
+                {
+                    method: "GET",
+
+                    credentials: "include"
+                }
             );
 
 
