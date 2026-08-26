@@ -17,10 +17,7 @@
 
     <title>Trove — Understand your inbox</title>
 
-    <link
-        rel="stylesheet"
-        href="{{ url_for('static', filename='style.css') }}"
-    >
+    <link rel="stylesheet" href="style.css">
 
 </head>
 
@@ -79,34 +76,13 @@
             </nav>
 
 
-            {% if user %}
-
-                <div class="header-user">
-
-                    <span class="user-name">
-                        {{ user.name }}
-                    </span>
-
-                    <a
-                        href="/logout"
-                        class="header-logout"
-                    >
-                        Logout
-                    </a>
-
-                </div>
-
-            {% else %}
-
-                <a
-                    href="https://trove-backend-ea57.onrender.com/login"
-                    id="google-login"
-                    class="google-login"
-                >
-                    Continue with Google
-                </a>
-
-            {% endif %}
+            <a
+                href="https://trove-backend-ea57.onrender.com/login"
+                id="google-login"
+                class="google-login"
+            >
+                Continue with Google
+            </a>
 
         </div>
 
@@ -147,27 +123,14 @@
             </p>
 
 
-            {% if not user %}
-
-                <a
-                    href="/login"
-                    class="hero-login"
-                >
-                    Start with Google
-                    <span>→</span>
-                </a>
-
-            {% else %}
-
-                <a
-                    href="#dashboard"
-                    class="hero-login"
-                >
-                    Open your inbox
-                    <span>↓</span>
-                </a>
-
-            {% endif %}
+            <a
+                href="https://trove-backend-ea57.onrender.com/login"
+                class="hero-login"
+                id="hero-login"
+            >
+                Start with Google
+                <span>→</span>
+            </a>
 
         </section>
 
@@ -256,8 +219,6 @@
              DASHBOARD
         ================================================== -->
 
-        {% if user %}
-
         <section
             id="dashboard"
             class="dashboard-section"
@@ -265,7 +226,7 @@
 
             <div
                 id="logged-in"
-                class="logged-in-class"
+                class="logged-in-class is-hidden"
             >
 
                 <div class="dashboard-copy">
@@ -275,8 +236,7 @@
                     </span>
 
                     <h2>
-                        Welcome back,
-                        {{ user.name }}
+                        Welcome back
                     </h2>
 
                     <p>
@@ -300,7 +260,7 @@
 
 
                     <a
-                        href="/logout"
+                        href="https://trove-backend-ea57.onrender.com/logout"
                         class="logout-btn"
                     >
                         Logout
@@ -399,6 +359,7 @@
                         type="button"
                         class="category-btn active"
                         data-category="All"
+                        aria-pressed="true"
                     >
                         All
                     </button>
@@ -408,6 +369,7 @@
                         type="button"
                         class="category-btn"
                         data-category="Action Required"
+                        aria-pressed="false"
                     >
                         Action Required
                     </button>
@@ -417,6 +379,7 @@
                         type="button"
                         class="category-btn"
                         data-category="Important"
+                        aria-pressed="false"
                     >
                         Important
                     </button>
@@ -426,6 +389,7 @@
                         type="button"
                         class="category-btn"
                         data-category="Information"
+                        aria-pressed="false"
                     >
                         Information
                     </button>
@@ -444,8 +408,6 @@
             </section>
 
         </section>
-
-        {% endif %}
 
 
         <!-- =================================================
@@ -539,7 +501,7 @@
 
 
         <small>
-            © 2026 Trove. Built as a full-stack AI project.
+            ©️ 2026 Trove. Built as a full-stack AI project.
         </small>
 
     </footer>
@@ -549,9 +511,7 @@
          JAVASCRIPT
     ====================================================== -->
 
-    <script
-        src="{{ url_for('static', filename='script.js') }}"
-    ></script>
+    <script src="script.js"></script>
 
 </body>
 
