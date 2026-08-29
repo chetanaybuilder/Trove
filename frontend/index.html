@@ -2,224 +2,517 @@
 <html lang="en">
 
 <head>
+
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Trove turns your inbox into clear, structured AI executive summaries.">
-    <title>Trove — AI Email Intelligence</title>
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <meta
+        name="description"
+        content="Trove turns your Gmail inbox into clear, useful AI summaries."
+    >
+
+    <title>Trove — Understand your inbox</title>
+
     <link rel="stylesheet" href="style.css">
+
 </head>
+
 
 <body>
 
     <!-- =====================================================
          HEADER
     ====================================================== -->
+
     <header class="site-header">
+
         <div class="header-inner">
-            <button id="menu-btn" class="menu-btn" type="button" aria-label="Open navigation" aria-expanded="false">
+
+            <button
+                id="menu-btn"
+                class="menu-btn"
+                type="button"
+                aria-label="Open navigation"
+                aria-expanded="false"
+            >
                 ☰
             </button>
 
-            <a href="/" class="logo" aria-label="Trove home">
+
+            <a
+                href="/"
+                class="logo"
+                aria-label="Trove home"
+            >
                 Trove
             </a>
 
-            <nav id="main-nav" aria-label="Main navigation">
-                <a href="#about">About</a>
-                <a href="#how-it-works">How it works</a>
-                <a href="#privacy">Privacy</a>
-                <a href="#github">GitHub</a>
+
+            <nav
+                id="main-nav"
+                aria-label="Main navigation"
+            >
+
+                <a href="#about">
+                    About
+                </a>
+
+                <a href="#how-it-works">
+                    How it works
+                </a>
+
+                <a href="#privacy">
+                    Privacy
+                </a>
+
+                <a href="#github">
+                    GitHub
+                </a>
+
             </nav>
 
-            <div style="display: flex; gap: 10px; align-items: center;">
-                <button id="nav-demo-btn" class="demo-btn" type="button">
-                    ⚡ Try Live Demo
-                </button>
-                <a href="https://trove-backend-ea57.onrender.com/login" id="google-login" class="google-login">
-                    Continue with Google
-                </a>
-            </div>
+
+            <a
+                href="https://trove-backend-ea57.onrender.com/login"
+                id="google-login"
+                class="google-login"
+            >
+                Continue with Google
+            </a>
+
         </div>
+
     </header>
+
 
     <!-- =====================================================
          MAIN
     ====================================================== -->
+
     <main>
+
 
         <!-- =================================================
              HERO
         ================================================== -->
-        <section class="hero" id="about">
-            <span class="hero-badge">AI EMAIL INTELLIGENCE</span>
+
+        <section
+            class="hero"
+            id="about"
+        >
+
+            <span class="hero-badge">
+                AI EMAIL INTELLIGENCE
+            </span>
+
 
             <h1>
-                Your inbox, <br>finally understandable.
+                Your inbox,
+                finally understandable.
             </h1>
 
+
             <p>
-                Trove turns cluttered email threads into clear, actionable executive summaries with deadlines, actions, and key takeaways using Gemini.
+                Trove turns your Gmail into clear,
+                useful summaries so you can understand
+                what matters without reading everything.
             </p>
 
-            <div style="display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-top: 10px;">
-                <button id="hero-demo-btn" class="hero-login" type="button" style="background: #2563eb; cursor: pointer; border: none;">
-                    ⚡ Explore Live Demo <span>→</span>
-                </button>
-                <a href="https://trove-backend-ea57.onrender.com/login" class="hero-login" id="hero-login" style="background: #1e293b;">
-                    Sign in with Google
-                </a>
-            </div>
+
+            <a
+                href="https://trove-backend-ea57.onrender.com/login"
+                class="hero-login"
+                id="hero-login"
+            >
+                Start with Google
+                <span>→</span>
+            </a>
+
         </section>
+
 
         <!-- =================================================
              HOW IT WORKS
         ================================================== -->
-        <section id="how-it-works" class="info-section">
-            <div class="section-label">HOW IT WORKS</div>
-            <h2>From inbox chaos to clarity.</h2>
+
+        <section
+            id="how-it-works"
+            class="info-section"
+        >
+
+            <div class="section-label">
+                HOW IT WORKS
+            </div>
+
+
+            <h2>
+                From inbox chaos to clarity.
+            </h2>
+
 
             <div class="info-grid">
-                <article class="info-card">
-                    <span class="info-number">01</span>
-                    <h3>Instant Demo or Sign In</h3>
-                    <p>
-                        Explore the pre-loaded sandbox or authenticate securely with standard, non-invasive Google Auth.
-                    </p>
-                </article>
 
                 <article class="info-card">
-                    <span class="info-number">02</span>
-                    <h3>Gemini Analyzes</h3>
+
+                    <span class="info-number">
+                        01
+                    </span>
+
+                    <h3>
+                        Connect Gmail
+                    </h3>
+
                     <p>
-                        Our backend extracts crucial actions, dates, and priorities across threads in seconds.
+                        Securely connect your Google account
+                        and give Trove read-only Gmail access.
                     </p>
+
                 </article>
 
+
                 <article class="info-card">
-                    <span class="info-number">03</span>
-                    <h3>Executive Summary</h3>
+
+                    <span class="info-number">
+                        02
+                    </span>
+
+                    <h3>
+                        Trove analyzes
+                    </h3>
+
                     <p>
-                        Scannable cards categorize items by Action Required, Important, and General Information.
+                        Gemini analyzes your latest emails
+                        and identifies summaries, actions,
+                        deadlines and importance.
                     </p>
+
                 </article>
+
+
+                <article class="info-card">
+
+                    <span class="info-number">
+                        03
+                    </span>
+
+                    <h3>
+                        You get clarity
+                    </h3>
+
+                    <p>
+                        Everything is organized into a
+                        clean dashboard you can scan quickly.
+                    </p>
+
+                </article>
+
             </div>
+
         </section>
+
 
         <!-- =================================================
              DASHBOARD
         ================================================== -->
-        <section id="dashboard" class="dashboard-section">
-            <div id="logged-in" class="logged-in-class is-hidden">
+
+        <section
+            id="dashboard"
+            class="dashboard-section"
+        >
+
+            <div
+                id="logged-in"
+                class="logged-in-class is-hidden"
+            >
+
                 <div class="dashboard-copy">
-                    <span class="dashboard-label">WORKSPACE</span>
-                    <h2 id="user-greeting">Welcome to Trove</h2>
-                    <p id="dashboard-status-text">Ready to extract insights and summarize threads?</p>
+
+                    <span class="dashboard-label">
+                        YOUR TROVE
+                    </span>
+
+                    <h2>
+                        Welcome back
+                    </h2>
+
+                    <p>
+                        Your Gmail is connected.
+                        Ready to find what matters?
+                    </p>
+
                 </div>
+
 
                 <div class="dashboard-actions">
-                    <button id="summarize-btn" class="summarize-btn" type="button">
-                        <span>✦</span> Analyze Demo Inbox
+
+                    <button
+                        id="summarize-btn"
+                        class="summarize-btn"
+                        type="button"
+                    >
+                        <span>✦</span>
+                        Analyze latest emails
                     </button>
-                    <a href="https://trove-backend-ea57.onrender.com/logout" class="logout-btn" id="logout-link">
-                        Reset / Exit
+
+
+                    <a
+                        href="https://trove-backend-ea57.onrender.com/logout"
+                        class="logout-btn"
+                    >
+                        Logout
                     </a>
+
                 </div>
 
-                <!-- QUICK PASTE INGESTION -->
-                <div style="margin-top: 24px; text-align: left; background: #0f172a; padding: 20px; border-radius: 12px; border: 1px solid #334155;">
-                    <h4 style="margin: 0 0 8px 0; color: #f8fafc; font-size: 15px;">Paste any custom email thread:</h4>
-                    <textarea id="manual-email-text" placeholder="Paste raw email content or newsletter text here..." style="width: 100%; height: 80px; background: #1e293b; color: #fff; border: 1px solid #475569; border-radius: 8px; padding: 10px; font-family: inherit; font-size: 14px; box-sizing: border-box; resize: vertical;"></textarea>
-                    <button id="manual-summarize-btn" type="button" style="margin-top: 10px; padding: 8px 16px; background: #3b82f6; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px;">
-                        ✦ Summarize Pasted Email
-                    </button>
-                </div>
             </div>
+
 
             <!-- =================================================
                  PROCESSING
             ================================================== -->
-            <section id="processing" class="processing is-hidden" aria-live="polite">
-                <div class="processing-orb">✦</div>
-                <h2>Analyzing with Gemini...</h2>
-                <p>Extracting actions, dates, deadlines, and core takeaways.</p>
-                <progress id="progress-bar" value="0" max="100"></progress>
-                <span id="progress-text" class="progress-text">Processing stream...</span>
+
+            <section
+                id="processing"
+                class="processing is-hidden"
+                aria-live="polite"
+            >
+
+                <div class="processing-orb">
+                    ✦
+                </div>
+
+
+                <h2>
+                    Analyzing your inbox...
+                </h2>
+
+
+                <p>
+                    Trove is reading your latest emails
+                    and creating useful summaries.
+                </p>
+
+
+                <progress
+                    id="progress-bar"
+                    value="0"
+                    max="100"
+                >
+                </progress>
+
+
+                <span
+                    id="progress-text"
+                    class="progress-text"
+                >
+                    Preparing...
+                </span>
+
             </section>
+
 
             <!-- =================================================
                  RESULTS
             ================================================== -->
-            <section id="results" class="result is-hidden" aria-live="polite">
+
+            <section
+                id="results"
+                class="result is-hidden"
+                aria-live="polite"
+            >
+
                 <div class="results-heading">
+
                     <div>
-                        <span class="section-label">ANALYSIS OUTPUT</span>
-                        <h2>Email Intelligence</h2>
-                        <p id="result-count">0 emails summarized</p>
+
+                        <span class="section-label">
+                            YOUR INBOX
+                        </span>
+
+                        <h2>
+                            Email intelligence
+                        </h2>
+
+                        <p id="result-count">
+                            0 emails summarized
+                        </p>
+
                     </div>
+
                 </div>
+
 
                 <!-- CATEGORY FILTER -->
-                <div id="category-filter" class="category" role="group" aria-label="Filter emails">
-                    <button type="button" class="category-btn active" data-category="All" aria-pressed="true">
+
+                <div
+                    id="category-filter"
+                    class="category"
+                    role="group"
+                    aria-label="Filter emails"
+                >
+
+                    <button
+                        type="button"
+                        class="category-btn active"
+                        data-category="All"
+                        aria-pressed="true"
+                    >
                         All
                     </button>
-                    <button type="button" class="category-btn" data-category="Action Required" aria-pressed="false">
+
+
+                    <button
+                        type="button"
+                        class="category-btn"
+                        data-category="Action Required"
+                        aria-pressed="false"
+                    >
                         Action Required
                     </button>
-                    <button type="button" class="category-btn" data-category="Important" aria-pressed="false">
+
+
+                    <button
+                        type="button"
+                        class="category-btn"
+                        data-category="Important"
+                        aria-pressed="false"
+                    >
                         Important
                     </button>
-                    <button type="button" class="category-btn" data-category="Information" aria-pressed="false">
+
+
+                    <button
+                        type="button"
+                        class="category-btn"
+                        data-category="Information"
+                        aria-pressed="false"
+                    >
                         Information
                     </button>
+
                 </div>
 
+
                 <!-- EMAILS -->
-                <div id="email-container" class="email-container"></div>
+
+                <div
+                    id="email-container"
+                    class="email-container"
+                >
+                </div>
+
             </section>
+
         </section>
+
 
         <!-- =================================================
              PRIVACY
         ================================================== -->
-        <section id="privacy" class="info-section privacy-section">
-            <div class="section-label">PRIVACY FIRST</div>
-            <h2>Clean scopes, complete control.</h2>
+
+        <section
+            id="privacy"
+            class="info-section privacy-section"
+        >
+
+            <div class="section-label">
+                PRIVACY
+            </div>
+
+
+            <h2>
+                Your inbox stays yours.
+            </h2>
+
+
             <p class="privacy-copy">
-                Trove is engineered following least-privilege security principles. Authentication uses standard non-sensitive OAuth profiles. Your data is analyzed on demand and never sold, shared, or used to train public models.
+                Trove requests read-only Gmail access.
+                It does not send, delete, or modify your
+                emails. Your summarized email data is stored
+                in PostgreSQL so your dashboard can persist
+                across sessions.
             </p>
+
         </section>
+
 
         <!-- =================================================
              GITHUB
         ================================================== -->
-        <section id="github" class="github-section">
+
+        <section
+            id="github"
+            class="github-section"
+        >
+
             <div>
-                <span class="section-label">OPEN SOURCE</span>
-                <h2>Built to learn. Built to show.</h2>
+
+                <span class="section-label">
+                    OPEN SOURCE
+                </span>
+
+                <h2>
+                    Built to learn.
+                    Built to show.
+                </h2>
+
                 <p>
-                    Trove combines Flask, PostgreSQL, Google Auth, and Gemini into an open-source AI productivity stack.
+                    Trove combines Flask, PostgreSQL,
+                    Google OAuth, Gmail API and Gemini
+                    into one full-stack AI project.
                 </p>
+
             </div>
-            <a href="https://github.com/" target="_blank" rel="noopener noreferrer" class="github-btn">
+
+
+            <a
+                href="https://github.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="github-btn"
+            >
                 View on GitHub →
             </a>
+
         </section>
 
     </main>
 
+
     <!-- =====================================================
          FOOTER
     ====================================================== -->
+
     <footer>
-        <h2>Trove</h2>
-        <p>Understand your inbox. Don't live in it.</p>
-        <small>© 2026 Trove. Built as a full-stack AI project.</small>
+
+        <h2>
+            Trove
+        </h2>
+
+
+        <p>
+            Understand your inbox.
+            Don't live in it.
+        </p>
+
+
+        <small>
+            ©️ 2026 Trove. Built as a full-stack AI project.
+        </small>
+
     </footer>
+
 
     <!-- =====================================================
          JAVASCRIPT
     ====================================================== -->
+
     <script src="script.js"></script>
+
 </body>
+
 </html>

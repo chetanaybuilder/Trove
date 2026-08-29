@@ -33,7 +33,11 @@ from google import genai
 
 load_dotenv()
 
-LOCAL_DEV = os.getenv("FLASK_ENV", "development") == "development"
+LOCAL_DEV = os.getenv(
+    "FLASK_ENV",
+    "development"
+) == "development"
+
 
 if LOCAL_DEV:
     os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
@@ -44,10 +48,14 @@ if LOCAL_DEV:
 # =========================================================
 
 app = Flask(__name__)
+
 app.secret_key = os.getenv("SECRET_KEY")
 
 if not app.secret_key:
-    raise RuntimeError("SECRET_KEY is missing from .env")
+    raise RuntimeError(
+        "SECRET_KEY is missing from .env"
+    )
+
 
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
@@ -57,94 +65,177 @@ app.config.update(
 
 
 # =========================================================
-# GOOGLE CONFIGURATION (CLEAN / UNRESTRICTED SCOPES)
+# GOOGLE CONFIGURATION
 # =========================================================
 
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_CLIENT_ID = os.getenv(
+    "GOOGLE_CLIENT_ID"
+)
+
+GOOGLE_CLIENT_SECRET = os.getenv(
+    "GOOGLE_CLIENT_SECRET"
+)
+
 GOOGLE_REDIRECT_URI = os.getenv(
     "GOOGLE_REDIRECT_URI",
     "http://127.0.0.1:5000/login/callback"
 )
 
-# Standard non-sensitive scopes (0% red warnings)
+
 SCOPES = [
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile"
+    "https://www.googleapis.com/auth/userinfo.profile",
+    "https://www.googleapis.com/auth/gmail.readonly"
 ]
 
-if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
-    raise RuntimeError("Google OAuth credentials missing from .env")
+
+if not GOOGLE_CLIENT_ID:
+    raise RuntimeError(
+        "GOOGLE_CLIENT_ID is missing from .env"
+    )
+
+
+if not GOOGLE_CLIENT_SECRET:
+    raise RuntimeError(
+        "GOOGLE_CLIENT_SECRET is missing from .env"
+    )
 
 
 # =========================================================
-# GEMINI CLIENT
+# GEMINI
 # =========================================================
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEY = os.getenv(
+    "GEMINI_API_KEY"
+)
+
 if not GEMINI_API_KEY:
-    raise RuntimeError("GEMINI_API_KEY is missing from .env")
+    raise RuntimeError(
+        "GEMINI_API_KEY is missing from .env"
+    )
 
-gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+
+gemini_client = genai.Client(
+    api_key=GEMINI_API_KEY
+)
 
 
 # =========================================================
-# POSTGRESQL DATABASE
+# POSTGRESQL
 # =========================================================
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL"
+)
+
 if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL is missing from .env")
+    raise RuntimeError(
+        "DATABASE_URL is missing from .env"
+    )
+
 
 def get_db():
-    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
+    return psycopg2.connect(
+        DATABASE_URL,
+        cursor_factory=RealDictCursor
+    )
+
+
+# =========================================================
+# DATABASE INITIALIZATION
+# =========================================================
 
 def init_db():
+
     connection = get_db()
+
     try:
+
         with connection.cursor() as cursor:
+
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS users (
+
                     id SERIAL PRIMARY KEY,
+
                     google_id TEXT UNIQUE NOT NULL,
+
                     name TEXT NOT NULL,
+
                     email TEXT UNIQUE NOT NULL,
+
                     credentials JSONB NOT NULL,
-                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+
+                    created_at TIMESTAMPTZ
+                        DEFAULT CURRENT_TIMESTAMP,
+
+                    updated_at TIMESTAMPTZ
+                        DEFAULT CURRENT_TIMESTAMP
                 );
                 """
             )
+
+
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS email_summaries (
+
                     id SERIAL PRIMARY KEY,
-                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+                    user_id INTEGER NOT NULL
+                        REFERENCES users(id)
+                        ON DELETE CASCADE,
+
                     gmail_message_id TEXT NOT NULL,
+
                     sender TEXT,
+
                     subject TEXT,
+
                     email_date TEXT,
+
                     summary TEXT,
+
                     action TEXT,
+
                     deadline TEXT,
+
                     category TEXT,
-                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(user_id, gmail_message_id)
+
+                    created_at TIMESTAMPTZ
+                        DEFAULT CURRENT_TIMESTAMP,
+
+                    UNIQUE(
+                        user_id,
+                        gmail_message_id
+                    )
                 );
                 """
             )
+
+
             cursor.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_email_summaries_user_id
+                CREATE INDEX IF NOT EXISTS
+                idx_email_summaries_user_id
                 ON email_summaries(user_id);
                 """
             )
+
+
             connection.commit()
+
     finally:
+
         connection.close()
+
+
+# =========================================================
+# START DATABASE
+# =========================================================
 
 init_db()
 
@@ -153,307 +244,1692 @@ init_db()
 # GOOGLE OAUTH FLOW
 # =========================================================
 
-def create_google_flow(state=None):
+def create_google_flow(
+    state=None
+):
+
     client_config = {
+
         "web": {
-            "client_id": GOOGLE_CLIENT_ID,
-            "client_secret": GOOGLE_CLIENT_SECRET,
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "redirect_uris": [GOOGLE_REDIRECT_URI]
+
+            "client_id":
+                GOOGLE_CLIENT_ID,
+
+            "client_secret":
+                GOOGLE_CLIENT_SECRET,
+
+            "auth_uri":
+                "https://accounts.google.com/o/oauth2/auth",
+
+            "token_uri":
+                "https://oauth2.googleapis.com/token",
+
+            "redirect_uris": [
+                GOOGLE_REDIRECT_URI
+            ]
         }
     }
-    flow = Flow.from_client_config(client_config, scopes=SCOPES, state=state)
-    flow.redirect_uri = GOOGLE_REDIRECT_URI
+
+
+    flow = Flow.from_client_config(
+
+        client_config,
+
+        scopes=SCOPES,
+
+        state=state
+
+    )
+
+
+    flow.redirect_uri = (
+        GOOGLE_REDIRECT_URI
+    )
+
+
     return flow
 
 
 # =========================================================
-# USER HELPERS
+# HOME
 # =========================================================
 
-def save_user(google_id, name, email, credentials):
-    credentials_json = json.loads(credentials.to_json())
-    connection = get_db()
+@app.route("/")
+def home():
+
+    user = None
+
+    if session.get("user_id"):
+
+        user = get_user_by_id(
+            session["user_id"]
+        )
+
+
+    return render_template(
+        "index.html",
+        user=user
+    )
+
+
+# =========================================================
+# LOGIN
+# =========================================================
+
+@app.route("/login")
+def login():
+
+    flow = create_google_flow()
+
+
+    authorization_url, state = (
+        flow.authorization_url(
+
+            access_type="offline",
+
+            include_granted_scopes="true",
+
+            prompt="consent"
+        )
+    )
+
+
+    session["oauth_state"] = state
+
+
+    session["code_verifier"] = (
+        flow.code_verifier
+    )
+
+
+    return redirect(
+        authorization_url
+    )
+
+
+# =========================================================
+# GOOGLE CALLBACK
+# =========================================================
+
+@app.route("/login/callback")
+def login_callback():
+
     try:
+
+        expected_state = (
+            session.get("oauth_state")
+        )
+
+        received_state = (
+            request.args.get("state")
+        )
+
+
+        if not expected_state:
+
+            return (
+                "OAuth session expired. "
+                "Please start login again.",
+                400
+            )
+
+
+        if not received_state:
+
+            return (
+                "Missing OAuth state.",
+                400
+            )
+
+
+        if received_state != expected_state:
+
+            return (
+                "Invalid OAuth state.",
+                400
+            )
+
+
+        code_verifier = (
+            session.get("code_verifier")
+        )
+
+
+        if not code_verifier:
+
+            return (
+                "Missing OAuth code verifier. "
+                "Please start login again.",
+                400
+            )
+
+
+        flow = create_google_flow(
+            state=expected_state
+        )
+
+
+        flow.code_verifier = (
+            code_verifier
+        )
+
+
+        flow.fetch_token(
+            authorization_response=request.url
+        )
+
+
+        credentials = flow.credentials
+
+
+        # =================================================
+        # USER INFORMATION
+        # =================================================
+
+        userinfo_service = build(
+            "oauth2",
+            "v2",
+            credentials=credentials
+        )
+
+
+        user_info = (
+            userinfo_service
+            .userinfo()
+            .get()
+            .execute()
+        )
+
+
+        google_id = user_info.get(
+            "id"
+        )
+
+        user_name = user_info.get(
+            "name",
+            "User"
+        )
+
+        user_email = user_info.get(
+            "email"
+        )
+
+
+        if not google_id or not user_email:
+
+            return (
+                "Google did not return "
+                "required account information.",
+                400
+            )
+
+
+        # =================================================
+        # SAVE USER
+        # =================================================
+
+        user_id = save_user(
+            google_id=google_id,
+            name=user_name,
+            email=user_email,
+            credentials=credentials
+        )
+
+
+        # =================================================
+        # SESSION
+        # =================================================
+
+        session.clear()
+
+        session["user_id"] = user_id
+        session["user_name"] = user_name
+        session["user_email"] = user_email
+
+
+        return redirect(
+            url_for("home")
+        )
+
+
+    except Exception as error:
+
+        print(
+            "OAuth error:",
+            repr(error)
+        )
+
+
+        session.clear()
+
+
+        return (
+            "Google login failed. "
+            "Please try again.",
+            500
+        )
+
+
+# =========================================================
+# SAVE USER
+# =========================================================
+
+def save_user(
+    google_id,
+    name,
+    email,
+    credentials
+):
+
+    credentials_json = json.loads(
+        credentials.to_json()
+    )
+
+
+    connection = get_db()
+
+    try:
+
         with connection.cursor() as cursor:
+
             cursor.execute(
                 """
-                INSERT INTO users (google_id, name, email, credentials)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO users
+                    (
+                        google_id,
+                        name,
+                        email,
+                        credentials
+                    )
+
+                VALUES
+                    (%s, %s, %s, %s)
+
                 ON CONFLICT (google_id)
+
                 DO UPDATE SET
+
                     name = EXCLUDED.name,
+
                     email = EXCLUDED.email,
-                    credentials = EXCLUDED.credentials,
-                    updated_at = CURRENT_TIMESTAMP
+
+                    credentials =
+                        EXCLUDED.credentials,
+
+                    updated_at =
+                        CURRENT_TIMESTAMP
+
                 RETURNING id;
                 """,
-                (google_id, name, email, Json(credentials_json))
+
+                (
+                    google_id,
+                    name,
+                    email,
+                    Json(credentials_json)
+                )
             )
+
+
             result = cursor.fetchone()
+
             connection.commit()
+
+
             return result["id"]
+
+
     finally:
+
         connection.close()
 
 
-def get_user_by_id(user_id):
+# =========================================================
+# GET USER
+# =========================================================
+
+def get_user_by_id(
+    user_id
+):
+
     connection = get_db()
+
     try:
+
         with connection.cursor() as cursor:
+
             cursor.execute(
-                "SELECT id, google_id, name, email, created_at FROM users WHERE id = %s",
+                """
+                SELECT
+                    id,
+                    google_id,
+                    name,
+                    email,
+                    created_at
+                FROM users
+                WHERE id = %s
+                """,
                 (user_id,)
             )
+
+
             return cursor.fetchone()
+
+
     finally:
+
         connection.close()
 
 
+# =========================================================
+# GET USER WITH CREDENTIALS
+# =========================================================
+
+def get_user_with_credentials(
+    user_id
+):
+
+    connection = get_db()
+
+    try:
+
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    google_id,
+                    name,
+                    email,
+                    credentials
+                FROM users
+                WHERE id = %s
+                """,
+                (user_id,)
+            )
+
+
+            return cursor.fetchone()
+
+
+    finally:
+
+        connection.close()
+
+
+# =========================================================
+# GOOGLE CREDENTIALS
+# =========================================================
+
+def get_google_credentials():
+
+    user_id = session.get(
+        "user_id"
+    )
+
+
+    if not user_id:
+
+        return None
+
+
+    user = get_user_with_credentials(
+        user_id
+    )
+
+
+    if not user:
+
+        return None
+
+
+    credentials_data = (
+        user["credentials"]
+    )
+
+
+    if isinstance(
+        credentials_data,
+        str
+    ):
+
+        credentials_data = json.loads(
+            credentials_data
+        )
+
+
+    credentials = (
+        Credentials.from_authorized_user_info(
+            credentials_data,
+            SCOPES
+        )
+    )
+
+
+    # =====================================================
+    # REFRESH TOKEN
+    # =====================================================
+
+    if (
+        credentials.expired
+        and credentials.refresh_token
+    ):
+
+        credentials.refresh(
+            Request()
+        )
+
+
+        save_refreshed_credentials(
+            user_id,
+            credentials
+        )
+
+
+    return credentials
+
+
+# =========================================================
+# SAVE REFRESHED CREDENTIALS
+# =========================================================
+
+def save_refreshed_credentials(
+    user_id,
+    credentials
+):
+
+    credentials_json = json.loads(
+        credentials.to_json()
+    )
+
+
+    connection = get_db()
+
+    try:
+
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                UPDATE users
+
+                SET
+                    credentials = %s,
+                    updated_at = CURRENT_TIMESTAMP
+
+                WHERE id = %s
+                """,
+
+                (
+                    Json(credentials_json),
+                    user_id
+                )
+            )
+
+
+            connection.commit()
+
+    finally:
+
+        connection.close()
+
+
+# =========================================================
+# LOGIN REQUIRED HELPER
+# =========================================================
+
 def require_login():
-    return session.get("user_id")
+
+    user_id = session.get(
+        "user_id"
+    )
+
+
+    if not user_id:
+
+        return None
+
+
+    return user_id
 
 
 # =========================================================
-# AI PARSER & UTILS
+# EMAIL BODY DECODER
 # =========================================================
 
-def clean_json_response(text):
+def decode_base64_data(
+    data
+):
+
+    try:
+
+        decoded = (
+            base64.urlsafe_b64decode(
+                data + "="
+                * (-len(data) % 4)
+            )
+        )
+
+
+        return decoded.decode(
+            "utf-8",
+            errors="ignore"
+        )
+
+
+    except Exception:
+
+        return ""
+
+
+def decode_email_body(
+    payload
+):
+
+    if not payload:
+
+        return ""
+
+
+    body = payload.get(
+        "body",
+        {}
+    )
+
+
+    data = body.get(
+        "data"
+    )
+
+
+    if data:
+
+        return decode_base64_data(
+            data
+        )
+
+
+    parts = payload.get(
+        "parts",
+        []
+    )
+
+
+    # Prefer plain text
+
+    for part in parts:
+
+        mime_type = part.get(
+            "mimeType",
+            ""
+        )
+
+
+        if mime_type == "text/plain":
+
+            data = (
+                part
+                .get("body", {})
+                .get("data")
+            )
+
+
+            if data:
+
+                return decode_base64_data(
+                    data
+                )
+
+
+    # Recursively search nested parts
+
+    for part in parts:
+
+        if part.get("parts"):
+
+            result = decode_email_body(
+                part
+            )
+
+
+            if result:
+
+                return result
+
+
+    # HTML fallback
+
+    for part in parts:
+
+        mime_type = part.get(
+            "mimeType",
+            ""
+        )
+
+
+        if mime_type == "text/html":
+
+            data = (
+                part
+                .get("body", {})
+                .get("data")
+            )
+
+
+            if data:
+
+                html = decode_base64_data(
+                    data
+                )
+
+
+                # Basic HTML → text
+
+                text = re.sub(
+                    r"<[^>]+>",
+                    " ",
+                    html
+                )
+
+
+                text = re.sub(
+                    r"\s+",
+                    " ",
+                    text
+                )
+
+
+                return text.strip()
+
+
+    return ""
+
+
+# =========================================================
+# EMAIL HEADER
+# =========================================================
+
+def get_header(
+    headers,
+    name
+):
+
+    for header in headers:
+
+        if (
+            header
+            .get("name", "")
+            .lower()
+            == name.lower()
+        ):
+
+            return header.get(
+                "value",
+                ""
+            )
+
+
+    return ""
+
+
+# =========================================================
+# CLEAN GEMINI JSON
+# =========================================================
+
+def clean_json_response(
+    text
+):
+
     text = text.strip()
+
+
     if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?", "", text, flags=re.IGNORECASE)
-        text = re.sub(r"```$", "", text)
+
+        text = re.sub(
+            r"^```(?:json)?",
+            "",
+            text,
+            flags=re.IGNORECASE
+        )
+
+
+        text = re.sub(
+            r"```$",
+            "",
+            text
+        )
+
+
         text = text.strip()
+
+
     return text
 
 
-def normalize_category(category):
+# =========================================================
+# VALIDATE CATEGORY
+# =========================================================
+
+VALID_CATEGORIES = {
+    "Action Required",
+    "Important",
+    "Information"
+}
+
+
+def normalize_category(
+    category
+):
+
     if not category:
+
         return "Information"
-    val = str(category).strip().lower()
-    if "action" in val:
+
+
+    value = str(
+        category
+    ).strip().lower()
+
+
+    if "action" in value:
+
         return "Action Required"
-    if "important" in val:
+
+
+    if "important" in value:
+
         return "Important"
+
+
     return "Information"
 
 
-def summarize_emails_with_gemini(emails):
+# =========================================================
+# GEMINI ANALYSIS
+# =========================================================
+
+def summarize_emails_with_gemini(
+    emails
+):
+
     email_blocks = []
-    for index, email in enumerate(emails, start=1):
+
+
+    for index, email in enumerate(
+        emails,
+        start=1
+    ):
+
         email_blocks.append(
-            f"EMAIL {index}\nSender: {email['sender']}\nSubject: {email['subject']}\nDate: {email['date']}\nBody:\n{email['body']}\n"
+            f"""
+EMAIL {index}
+
+Sender:
+{email["sender"]}
+
+Subject:
+{email["subject"]}
+
+Date:
+{email["date"]}
+
+Body:
+{email["body"]}
+"""
         )
 
-    email_text = "\n---\n".join(email_blocks)
+
+    email_text = "\n".join(
+        email_blocks
+    )
+
 
     prompt = f"""
-You are Trove, an elite AI email intelligence assistant.
-Analyze the emails below and output structured JSON.
+You are Trove, an AI email intelligence assistant.
 
-Return ONLY valid JSON matching this schema:
+Analyze the emails below.
+
+Return ONLY valid JSON.
+
+Required structure:
+
 {{
   "emails": [
     {{
       "index": 1,
-      "summary": "High-impact 1-2 sentence executive summary",
-      "action": "Specific task required or 'No action required'",
-      "deadline": "Extracted date/time or 'No deadline'",
-      "category": "Action Required | Important | Information"
+      "summary": "Short useful summary",
+      "action": "What the user needs to do, or No action required",
+      "deadline": "Deadline if explicitly mentioned, otherwise No deadline",
+      "category": "Action Required"
     }}
   ]
 }}
 
 Rules:
-1. Return exactly one object per input email preserving the index.
-2. Category must strictly be one of: Action Required, Important, Information.
-3. Keep summaries concise, clear, and factual.
+
+1. Return exactly one object for every input email.
+2. Preserve the email index.
+3. Never invent information.
+4. Keep summaries concise and useful.
+5. Only identify an action when the email actually requires one.
+6. Only provide a deadline when explicitly stated or clearly present.
+7. Otherwise use "No deadline".
+8. If no action is required, use "No action required".
+9. Category must be exactly one of:
+   Action Required
+   Important
+   Information
 
 EMAILS:
+
 {email_text}
 """
-    response = gemini_client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt
+
+
+    response = (
+        gemini_client
+        .models
+        .generate_content(
+
+            model="gemini-2.5-flash",
+
+            contents=prompt
+        )
     )
+
 
     if not response.text:
-        raise RuntimeError("Gemini returned empty text response.")
 
-    parsed = json.loads(clean_json_response(response.text))
-    return parsed.get("emails", [])
-
-
-# =========================================================
-# ROUTES
-# =========================================================
-
-@app.route("/")
-def home():
-    user = None
-    if session.get("user_id"):
-        user = get_user_by_id(session["user_id"])
-    return render_template("index.html", user=user)
-
-
-@app.route("/login")
-def login():
-    flow = create_google_flow()
-    auth_url, state = flow.authorization_url(
-        access_type="offline",
-        prompt="consent"
-    )
-    session["oauth_state"] = state
-    session["code_verifier"] = flow.code_verifier
-    return redirect(auth_url)
-
-
-@app.route("/login/callback")
-def login_callback():
-    try:
-        expected_state = session.get("oauth_state")
-        received_state = request.args.get("state")
-
-        if not expected_state or received_state != expected_state:
-            return "Invalid OAuth state.", 400
-
-        flow = create_google_flow(state=expected_state)
-        flow.code_verifier = session.get("code_verifier")
-        flow.fetch_token(authorization_response=request.url)
-
-        userinfo_service = build("oauth2", "v2", credentials=flow.credentials)
-        user_info = userinfo_service.userinfo().get().execute()
-
-        user_id = save_user(
-            google_id=user_info["id"],
-            name=user_info.get("name", "User"),
-            email=user_info["email"],
-            credentials=flow.credentials
+        raise RuntimeError(
+            "Gemini returned an empty response."
         )
 
-        session.clear()
-        session["user_id"] = user_id
-        session["user_name"] = user_info.get("name", "User")
-        session["user_email"] = user_info["email"]
 
-        return redirect(url_for("home"))
-    except Exception as error:
-        print("OAuth Error:", repr(error))
-        session.clear()
-        return "Google login failed.", 500
+    text = clean_json_response(
+        response.text
+    )
+
+
+    try:
+
+        result = json.loads(
+            text
+        )
+
+    except json.JSONDecodeError as error:
+
+        print(
+            "Gemini JSON error:",
+            text
+        )
+
+        raise RuntimeError(
+            "Gemini returned invalid JSON."
+        ) from error
+
+
+    ai_results = result.get(
+        "emails",
+        []
+    )
+
+
+    if not isinstance(
+        ai_results,
+        list
+    ):
+
+        raise RuntimeError(
+            "Gemini returned an invalid email list."
+        )
+
+
+    return ai_results
 
 
 # =========================================================
-# ELITE DEMO / SANDBOX SUMMARIZATION (100% FREE)
+# SAVE SUMMARIES
 # =========================================================
 
-@app.route("/api/demo-summarize", methods=["POST"])
-def demo_summarize():
-    """Live demo that runs the real Gemini model on realistic mock emails."""
-    mock_emails = [
-        {
-            "gmail_message_id": "demo-001",
-            "sender": "Billing <billing@stripe.com>",
-            "subject": "Invoice #INV-2026-089 is ready",
-            "date": "Today, 10:30 AM",
-            "body": "Your invoice for August 2026 ($240.00) is due on September 5, 2026. Please update your payment card on file."
-        },
-        {
-            "gmail_message_id": "demo-002",
-            "sender": "GitHub <notifications@github.com>",
-            "subject": "[Pull Request] Critical security patch for auth layer #42",
-            "date": "Today, 09:15 AM",
-            "body": "Jacob has requested your review on PR #42: Updated session tokens and rate limits. Please review before merge."
-        },
-        {
-            "gmail_message_id": "demo-003",
-            "sender": "AWS Notifications <no-reply@amazon.com>",
-            "subject": "AWS Budget Alert: 85% of monthly threshold reached",
-            "date": "Yesterday, 6:00 PM",
-            "body": "Your account has reached $85.40 of your $100.00 monthly threshold. No immediate action required if expected."
-        },
-        {
-            "gmail_message_id": "demo-004",
-            "sender": "Substack Daily <newsletter@substack.com>",
-            "subject": "State of AI & Software Architecture 2026",
-            "date": "Yesterday, 2:00 PM",
-            "body": "In today's edition: Why modern SaaS architecture is moving toward edge functions and client-side processing."
-        }
-    ]
+def save_summaries(
+    user_id,
+    summaries
+):
 
-    ai_results = summarize_emails_with_gemini(mock_emails)
-    summaries = []
+    connection = get_db()
 
-    for index, email in enumerate(mock_emails, start=1):
-        ai = next((item for item in ai_results if item.get("index") == index), {})
-        summaries.append({
-            "id": f"demo-{index}",
-            "gmail_message_id": email["gmail_message_id"],
-            "sender": email["sender"],
-            "subject": email["subject"],
-            "date": email["date"],
-            "summary": ai.get("summary", "Summary not generated."),
-            "action": ai.get("action", "No action required"),
-            "deadline": ai.get("deadline", "No deadline"),
-            "category": normalize_category(ai.get("category"))
+    try:
+
+        with connection.cursor() as cursor:
+
+            for item in summaries:
+
+                cursor.execute(
+                    """
+                    INSERT INTO email_summaries
+                    (
+                        user_id,
+                        gmail_message_id,
+                        sender,
+                        subject,
+                        email_date,
+                        summary,
+                        action,
+                        deadline,
+                        category
+                    )
+
+                    VALUES
+                    (
+                        %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s
+                    )
+
+                    ON CONFLICT
+                    (
+                        user_id,
+                        gmail_message_id
+                    )
+
+                    DO UPDATE SET
+
+                        sender =
+                            EXCLUDED.sender,
+
+                        subject =
+                            EXCLUDED.subject,
+
+                        email_date =
+                            EXCLUDED.email_date,
+
+                        summary =
+                            EXCLUDED.summary,
+
+                        action =
+                            EXCLUDED.action,
+
+                        deadline =
+                            EXCLUDED.deadline,
+
+                        category =
+                            EXCLUDED.category,
+
+                        created_at =
+                            CURRENT_TIMESTAMP
+                    """,
+
+                    (
+                        user_id,
+                        item["gmail_message_id"],
+                        item["sender"],
+                        item["subject"],
+                        item["date"],
+                        item["summary"],
+                        item["action"],
+                        item["deadline"],
+                        item["category"]
+                    )
+                )
+
+
+            connection.commit()
+
+
+    finally:
+
+        connection.close()
+
+
+# =========================================================
+# GET SAVED SUMMARIES
+# =========================================================
+
+def get_saved_summaries(
+    user_id
+):
+
+    connection = get_db()
+
+    try:
+
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    gmail_message_id,
+                    sender,
+                    subject,
+                    email_date,
+                    summary,
+                    action,
+                    deadline,
+                    category,
+                    created_at
+
+                FROM email_summaries
+
+                WHERE user_id = %s
+
+                ORDER BY created_at DESC
+                """,
+
+                (user_id,)
+            )
+
+
+            rows = cursor.fetchall()
+
+
+            results = []
+
+
+            for row in rows:
+
+                results.append({
+
+                    "id":
+                        row["id"],
+
+                    "gmail_message_id":
+                        row["gmail_message_id"],
+
+                    "sender":
+                        row["sender"],
+
+                    "subject":
+                        row["subject"],
+
+                    "date":
+                        row["email_date"],
+
+                    "summary":
+                        row["summary"],
+
+                    "action":
+                        row["action"],
+
+                    "deadline":
+                        row["deadline"],
+
+                    "category":
+                        normalize_category(
+                            row["category"]
+                        )
+                })
+
+
+            return results
+
+
+    finally:
+
+        connection.close()
+
+
+# =========================================================
+# SUMMARIZE ROUTE
+# =========================================================
+
+@app.route(
+    "/summarize",
+    methods=["POST"]
+)
+def summarize():
+
+    user_id = require_login()
+
+
+    if not user_id:
+
+        return jsonify({
+            "error":
+                "You are not logged in."
+        }), 401
+
+
+    try:
+
+        credentials = (
+            get_google_credentials()
+        )
+
+
+        if not credentials:
+
+            return jsonify({
+                "error":
+                    "Your Google session has expired. "
+                    "Please log in again."
+            }), 401
+
+
+        gmail = build(
+            "gmail",
+            "v1",
+            credentials=credentials
+        )
+
+
+        # =================================================
+        # GET LATEST EMAILS
+        # =================================================
+
+        response = (
+            gmail
+            .users()
+            .messages()
+            .list(
+                userId="me",
+                maxResults=10
+            )
+            .execute()
+        )
+
+
+        messages = response.get(
+            "messages",
+            []
+        )
+
+
+        emails = []
+
+
+        # =================================================
+        # FETCH EMAIL CONTENT
+        # =================================================
+
+        for message in messages:
+
+            email = (
+                gmail
+                .users()
+                .messages()
+                .get(
+                    userId="me",
+                    id=message["id"],
+                    format="full"
+                )
+                .execute()
+            )
+
+
+            payload = email.get(
+                "payload",
+                {}
+            )
+
+
+            headers = payload.get(
+                "headers",
+                []
+            )
+
+
+            sender = get_header(
+                headers,
+                "From"
+            )
+
+
+            subject = get_header(
+                headers,
+                "Subject"
+            )
+
+
+            date = get_header(
+                headers,
+                "Date"
+            )
+
+
+            body = decode_email_body(
+                payload
+            )
+
+
+            body = body[:6000]
+
+
+            if not body:
+
+                body = (
+                    "No readable email "
+                    "content found."
+                )
+
+
+            emails.append({
+
+                "gmail_message_id":
+                    message["id"],
+
+                "sender":
+                    sender or "Unknown sender",
+
+                "subject":
+                    subject or "No subject",
+
+                "date":
+                    date or "",
+
+                "body":
+                    body
+            })
+
+
+        # =================================================
+        # NO EMAILS
+        # =================================================
+
+        if not emails:
+
+            return jsonify({
+
+                "emails": [],
+
+                "count": 0
+
+            })
+
+
+        # =================================================
+        # GEMINI
+        # =================================================
+
+        ai_results = (
+            summarize_emails_with_gemini(
+                emails
+            )
+        )
+
+
+        # =================================================
+        # MAP RESULTS
+        # =================================================
+
+        ai_by_index = {}
+
+
+        for result in ai_results:
+
+            try:
+
+                index = int(
+                    result.get("index")
+                )
+
+                ai_by_index[index] = result
+
+            except (
+                TypeError,
+                ValueError
+            ):
+
+                continue
+
+
+        summaries = []
+
+
+        for index, email in enumerate(
+            emails,
+            start=1
+        ):
+
+            ai = ai_by_index.get(
+                index,
+                {}
+            )
+
+
+            summary = (
+                ai.get(
+                    "summary"
+                )
+                or
+                "No summary available."
+            )
+
+
+            action = (
+                ai.get(
+                    "action"
+                )
+                or
+                "No action required"
+            )
+
+
+            deadline = (
+                ai.get(
+                    "deadline"
+                )
+                or
+                "No deadline"
+            )
+
+
+            category = normalize_category(
+                ai.get("category")
+            )
+
+
+            summaries.append({
+
+                "gmail_message_id":
+                    email[
+                        "gmail_message_id"
+                    ],
+
+                "sender":
+                    email["sender"],
+
+                "subject":
+                    email["subject"],
+
+                "date":
+                    email["date"],
+
+                "summary":
+                    summary,
+
+                "action":
+                    action,
+
+                "deadline":
+                    deadline,
+
+                "category":
+                    category
+            })
+
+
+        # =================================================
+        # SAVE TO POSTGRESQL
+        # =================================================
+
+        save_summaries(
+            user_id,
+            summaries
+        )
+
+
+        # =================================================
+        # RESPONSE
+        # =================================================
+
+        saved = get_saved_summaries(
+            user_id
+        )
+
+
+        return jsonify({
+
+            "emails":
+                saved,
+
+            "count":
+                len(saved)
+
         })
 
-    return jsonify({"emails": summaries, "count": len(summaries), "demo": True})
+
+    except Exception as error:
+
+        print(
+            "\n================================"
+        )
+
+        print(
+            "TROVE ERROR:"
+        )
+
+        print(
+            repr(error)
+        )
+
+        print(
+            "================================\n"
+        )
+
+
+        message = (
+            "Trove couldn't analyze your inbox."
+        )
+
+
+        error_text = str(
+            error
+        ).lower()
+
+
+        if (
+            "quota" in error_text
+            or
+            "resource_exhausted"
+            in error_text
+            or
+            "429" in error_text
+        ):
+
+            message = (
+                "Gemini is temporarily "
+                "rate-limited. Please try again later."
+            )
+
+
+        elif (
+            "credentials" in error_text
+            or
+            "unauthorized" in error_text
+            or
+            "401" in error_text
+        ):
+
+            message = (
+                "Your Google session has expired. "
+                "Please log in again."
+            )
+
+
+        elif (
+            "403" in error_text
+        ):
+
+            message = (
+                "Google denied Gmail access. "
+                "Please check your Google permissions."
+            )
+
+
+        return jsonify({
+            "error":
+                message
+        }), 500
 
 
 # =========================================================
-# MANUAL TEXT / EMAIL INGESTION ROUTE
+# GET SAVED SUMMARIES
 # =========================================================
 
-@app.route("/api/manual-summarize", methods=["POST"])
-def manual_summarize():
-    """Allows users to paste raw email text and get an instant AI summary."""
-    data = request.get_json() or {}
-    raw_content = data.get("content", "").strip()
+@app.route(
+    "/summaries",
+    methods=["GET"]
+)
+def summaries():
 
-    if not raw_content:
-        return jsonify({"error": "Content cannot be empty."}), 400
+    user_id = require_login()
 
-    single_email = [{
-        "sender": data.get("sender", "Manual Input"),
-        "subject": data.get("subject", "Pasted Email Thread"),
-        "date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"),
-        "body": raw_content[:8000]
-    }]
 
-    ai_results = summarize_emails_with_gemini(single_email)
-    result = ai_results[0] if ai_results else {}
+    if not user_id:
 
-    return jsonify({
-        "emails": [{
-            "id": 1,
-            "sender": single_email[0]["sender"],
-            "subject": single_email[0]["subject"],
-            "date": single_email[0]["date"],
-            "summary": result.get("summary", "Summary completed."),
-            "action": result.get("action", "No action required"),
-            "deadline": result.get("deadline", "No deadline"),
-            "category": normalize_category(result.get("category"))
-        }],
-        "count": 1
-    })
+        return jsonify({
+            "error":
+                "You are not logged in."
+        }), 401
+
+
+    try:
+
+        saved = get_saved_summaries(
+            user_id
+        )
+
+
+        return jsonify({
+
+            "emails":
+                saved,
+
+            "count":
+                len(saved)
+
+        })
+
+
+    except Exception as error:
+
+        print(
+            "Summary fetch error:",
+            repr(error)
+        )
+
+
+        return jsonify({
+            "error":
+                "Could not load saved summaries."
+        }), 500
 
 
 # =========================================================
-# LOGOUT & HEALTH
+# DELETE SUMMARY
+# =========================================================
+
+@app.route(
+    "/summaries/<int:summary_id>",
+    methods=["DELETE"]
+)
+def delete_summary(
+    summary_id
+):
+
+    user_id = require_login()
+
+
+    if not user_id:
+
+        return jsonify({
+            "error":
+                "You are not logged in."
+        }), 401
+
+
+    connection = get_db()
+
+    try:
+
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                DELETE FROM email_summaries
+
+                WHERE id = %s
+                AND user_id = %s
+
+                RETURNING id
+                """,
+
+                (
+                    summary_id,
+                    user_id
+                )
+            )
+
+
+            deleted = cursor.fetchone()
+
+
+            connection.commit()
+
+
+            if not deleted:
+
+                return jsonify({
+                    "error":
+                        "Summary not found."
+                }), 404
+
+
+            return jsonify({
+                "success": True,
+                "id": summary_id
+            })
+
+
+    finally:
+
+        connection.close()
+
+
+# =========================================================
+# LOGOUT
 # =========================================================
 
 @app.route("/logout")
 def logout():
-    session.clear()
-    return redirect(url_for("home"))
 
+    session.clear()
+
+
+    return redirect(
+        url_for("home")
+    )
+
+
+# =========================================================
+# HEALTH CHECK
+# =========================================================
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "backend": "active"})
 
+    try:
+
+        connection = get_db()
+
+        connection.close()
+
+
+        return jsonify({
+            "status":
+                "ok",
+            "database":
+                "connected"
+        })
+
+
+    except Exception:
+
+        return jsonify({
+            "status":
+                "error",
+            "database":
+                "disconnected"
+        }), 500
+
+
+# =========================================================
+# RUN
+# =========================================================
 
 if __name__ == "__main__":
-    app.run(debug=LOCAL_DEV)
+
+    app.run(
+        debug=LOCAL_DEV
+    )
