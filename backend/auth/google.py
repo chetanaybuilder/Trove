@@ -3,7 +3,7 @@ import json
 import urllib.request
 from urllib.error import URLError
 
-GOOGLE_CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 
 def verify_google_credential(credential: str) -> dict:
     # Use urllib with a 5s timeout to bypass the Windows IPv6 requests hang that takes 2 minutes
