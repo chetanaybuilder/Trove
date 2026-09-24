@@ -18,7 +18,7 @@ export default function GoogleSignIn() {
       if (!ref.current || !window.google) return;
       ref.current.innerHTML = "";
       window.google.accounts.id.initialize({
-        client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "",
+        client_id: "584470434360-a2hr86d4km3odtu3blfb9r9pfqjmo3bv.apps.googleusercontent.com",
         callback: async ({ credential }: { credential: string }) => {
           try {
             const r = await fetch("/api/v1/auth/google", {
