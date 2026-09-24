@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+gunicorn
+pydantic
+python-multipart
+sse-starlette
+google-genai
+sqlalchemy[asyncio]
+asyncpg
+alembic
+google-auth
+pyjwt
+python-dotenv
