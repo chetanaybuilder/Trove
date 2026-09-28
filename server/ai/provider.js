@@ -11,7 +11,7 @@ async function withRetry(fn) {
 }
 const providers = {
   async gemini({ system, data, instruction, schemaHint }) {
-    const model = process.env.AI_MODEL || "gemini-2.0-flash";
+    const model = process.env.AI_MODEL || "gemini-3.8-flash";
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: "POST", signal: AbortSignal.timeout(90000),
       headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.AI_API_KEY },
