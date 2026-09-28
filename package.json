@@ -9,7 +9,7 @@
     "dev:server": "node --env-file=.env --watch server/index.js",
     "dev:client": "vite",
     "build": "vite build",
-    "start": "node server/index.js",
+    "start": "node scripts/migrate.js && node server/index.js",
     "start:local": "node --env-file=.env server/index.js",
     "db:migrate": "node --env-file=.env scripts/migrate.js",
     "test:pipeline": "node server/processing/selftest.js",
