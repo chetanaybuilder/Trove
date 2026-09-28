@@ -1,16 +1,17 @@
 // Provider abstraction: pipeline code only calls getProvider().generateJSON().
 class Sem { constructor(n) { this.n = n; this.q = []; }
   async run(fn) { if (this.n <= 0) await new Promise((r) => this.q.push(r)); else this.n--; try { return await fn(); } finally { const nx = this.q.shift(); nx ? nx() : this.n++; } } }
-const gate = new Sem(Number(process.env.AI_MAX_CONCURRENCY || 8)); // global cap on simultaneous provider calls
+const gate = new Sem(Number(process.env.AI_MAX_CONCURRENCY || 2)); // global cap on simultaneous provider calls
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function withRetry(fn) {
   for (let a = 0; ; a++) {
     try { return await fn(); }
     catch (e) {
-      if (a >= 6 || (e.code && !["RATE_LIMIT", "PROVIDER"].includes(e.code))) {
+      if (a >= 10 || (e.code && !["RATE_LIMIT", "PROVIDER"].includes(e.code))) {
         throw Object.assign(e, { code: e.code || "PROVIDER" });
       }
-      await sleep(2000 * 2 ** a + Math.random() * 1000);
+      // Wait up to 30 seconds for 503s!
+      await sleep(3000 * 2 ** a + Math.random() * 2000);
     }
   }
 }
