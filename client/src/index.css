@@ -1,0 +1,12 @@
+@tailwind base; @tailwind components; @tailwind utilities;
+body { @apply text-slate-100 antialiased; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+.aurora { background: radial-gradient(60% 50% at 20% 0%, rgba(56,189,248,.18), transparent), radial-gradient(50% 40% at 90% 10%, rgba(251,191,36,.14), transparent), #070b14; }
+.glass { @apply bg-white/5 backdrop-blur-md border border-white/10; }
+.stage { perspective: 900px; }
+.tilt { transform-style: preserve-3d; animation: drift 10s ease-in-out infinite; }
+.layer { position: absolute; inset: 0; border-radius: 1.25rem; }
+@keyframes drift { 0%,100% { transform: rotateX(16deg) rotateY(-20deg) translateY(0); } 50% { transform: rotateX(8deg) rotateY(16deg) translateY(-12px); } }
+@keyframes pulseGlow { 0%,100% { opacity: .5 } 50% { opacity: 1 } }
+.pulse { animation: pulseGlow 2.4s ease-in-out infinite; }
+:focus-visible { outline: 2px solid #fbbf24; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .tilt, .pulse { animation: none; } * { scroll-behavior: auto !important; } }

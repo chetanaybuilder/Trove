@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: trove-app
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:prod
+    envVars:
+      - key: NODE_VERSION
+        value: 22.0.0
+      - key: PORT
+        value: 8787

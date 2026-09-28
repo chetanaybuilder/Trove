@@ -1,0 +1,36 @@
+{
+  "name": "trove",
+  "version": "1.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:server": "node --env-file=.env --watch server/index.js",
+    "dev:client": "vite",
+    "build": "vite build",
+    "start": "node --env-file=.env server/index.js",
+    "start:prod": "node server/index.js",
+    "db:migrate": "node --env-file=.env scripts/migrate.js",
+    "test:pipeline": "node server/processing/selftest.js",
+    "test:load": "node server/processing/loadtest.js"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "google-auth-library": "^9.14.0",
+    "helmet": "^7.1.0",
+    "pdf-parse": "^1.1.1",
+    "pdfkit": "^0.15.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.0",
+    "autoprefixer": "^10.4.20",
+    "tailwindcss": "^3.4.10",
+    "vite": "^5.4.0"
+  }
+}
