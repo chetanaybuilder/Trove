@@ -6,7 +6,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function withRetry(fn) {
   for (let a = 0; ; a++) {
     try { return await fn(); }
-    catch (e) { if (a >= 3 || (e.code && !["RATE_LIMIT", "PROVIDER"].includes(e.code))) throw Object.assign(e, { code: e.code || "PROVIDER" }); await sleep(1000 * 2 ** a + Math.random() * 500); }
+    catch (e) {
+      if (a >= 6 || (e.code && !["RATE_LIMIT", "PROVIDER"].includes(e.code))) {
+        throw Object.assign(e, { code: e.code || "PROVIDER" });
+      }
+      await sleep(2000 * 2 ** a + Math.random() * 1000);
+    }
   }
 }
 const providers = {
