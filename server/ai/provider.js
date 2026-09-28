@@ -23,7 +23,11 @@ const providers = {
       }),
     });
     if (res.status === 429) throw Object.assign(new Error("rate limit"), { code: "RATE_LIMIT" });
-    if (!res.ok) throw Object.assign(new Error("provider error"), { code: "PROVIDER" });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "unknown");
+      console.error(`Gemini API Error: ${res.status} - ${errText}`);
+      throw Object.assign(new Error("provider error"), { code: "PROVIDER" });
+    }
     const j = await res.json();
     return j.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
   },
