@@ -1,3 +1,5 @@
+DROP TABLE IF EXISTS report_sections, reports, analyses, documents, users CASCADE;
+
 CREATE TABLE users (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   google_id text NOT NULL UNIQUE,
