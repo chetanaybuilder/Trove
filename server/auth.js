@@ -44,6 +44,9 @@ authRouter.get("/google/callback", async (req, res) => {
     const u = await upsertUser({ googleId: p.sub, email: p.email, name: p.name ?? null, avatarUrl: p.picture ?? null });
     res.append("Set-Cookie", `trove_session=${sign({ uid: u.id, name: u.name, email: u.email, avatar: u.avatar_url, exp: Date.now() + 7 * 864e5 })}; Max-Age=${7 * 86400}; ${flags()}`);
     res.redirect(appUrl() + "/");
-  } catch { res.redirect(appUrl() + "/?auth=failed"); }
+  } catch (err) {
+    console.error("Auth callback error:", err);
+    res.redirect(appUrl() + "/?auth=failed");
+  }
 });
 authRouter.post("/logout", (req, res) => { res.append("Set-Cookie", `trove_session=; Max-Age=0; ${flags()}`); res.json({ ok: true }); });
