@@ -16,7 +16,7 @@ import * as db from "./db/repo.js";
 import { reportPdf } from "./pdf.js";
 
 const app = express();
-if (process.env.TRUST_PROXY) app.set("trust proxy", Number(process.env.TRUST_PROXY));
+app.set("trust proxy", 1);
 app.use(helmet());
 const smallJson = express.json({ limit: "100kb" });
 app.use((req, res, next) => (req.path === "/api/analyze" ? next() : smallJson(req, res, next)));

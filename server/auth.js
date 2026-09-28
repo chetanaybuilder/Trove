@@ -12,7 +12,13 @@ function verify(t) {
   try { const p = JSON.parse(Buffer.from(b, "base64url")); return p.exp > Date.now() ? p : null; } catch { return null; }
 }
 const cookies = (req) => Object.fromEntries((req.headers.cookie ?? "").split(";").map((c) => c.trim().split("=")).filter((x) => x[0]).map(([k, ...v]) => [k, decodeURIComponent(v.join("="))]));
-const appUrl = () => process.env.APP_URL || "http://localhost:5173";
+const appUrl = () => {
+  let url = (process.env.APP_URL || "http://localhost:5173").trim();
+  if (process.env.NODE_ENV === "production" && url.startsWith("http://") && !url.includes("localhost")) {
+    url = url.replace("http://", "https://");
+  }
+  return url;
+};
 const flags = () => `Path=/; HttpOnly; SameSite=Lax${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;
 const oauth = () => new OAuth2Client(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, `${appUrl()}/auth/google/callback`);
 
