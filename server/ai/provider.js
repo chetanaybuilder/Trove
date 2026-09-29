@@ -15,13 +15,15 @@ function recordFailure() {
     downUntil = Date.now() + 60000;
     failures = 0;
   }
-}
-
 const FALLBACK_MODELS = [
-  process.env.GROQ_MODEL || process.env.AI_MODEL || "llama-3.3-70b-versatile",
+  process.env.GROQ_MODEL || process.env.AI_MODEL,
+  "deepseek-r1-distill-llama-70b",
+  "llama-3.3-70b-specdec",
+  "llama-3.3-70b-versatile",
+  "llama-3.2-90b-vision-preview",
   "llama-3.1-8b-instant",
-  "mixtral-8x7b-32768",
   "gemma2-9b-it",
+  "mixtral-8x7b-32768",
   "llama3-8b-8192",
   "llama3-70b-8192"
 ];
@@ -85,14 +87,19 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0, 
       // Auth failed, do not retry
       throw Object.assign(new Error("auth failed"), { code: "AUTH" });
     }
-    if (res.status === 404) {
-      // Model not found. Fallback to the next model in the list
+    
+    // Read the error text now because we need it for 400 and 429 logic
+    const errText = await res.text().catch(() => "unknown");
+    
+    // If it's a 404 (model not found) OR a 400 that says decommissioned, we trigger the array fallback
+    if (res.status === 404 || (res.status === 400 && (errText.includes("decommissioned") || errText.includes("model_not_found")))) {
       if (modelIndex < uniqueModels.length - 1) {
-        console.warn(`Groq model '${model}' not found (404). Falling back to '${uniqueModels[modelIndex + 1]}'.`);
+        console.warn(`Groq model '${model}' not found/decommissioned (${res.status}). Falling back to '${uniqueModels[modelIndex + 1]}'.`);
         return callGroq({ system, data, instruction, schemaHint }, attempt, modelIndex + 1);
       }
       throw Object.assign(new Error("model not found"), { code: "MODEL_ERROR" });
     }
+    
     if (res.status === 429 || res.status === 503) {
       if (attempt === 0) {
         const retryAfter = res.headers.get("retry-after");
@@ -100,12 +107,11 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0, 
         await sleep(delay);
         return callGroq({ system, data, instruction, schemaHint }, attempt + 1, modelIndex);
       }
-      const errText = await res.text().catch(() => "unknown");
       console.warn(`Groq returned ${res.status}: ${errText.slice(0, 200)}`);
       recordFailure();
       throw Object.assign(new Error(`rate/overloaded ${res.status}`), { code: "OVERLOAD", status: res.status });
     }
-    const errText = await res.text().catch(() => "unknown");
+    
     console.error(`Groq API Error: ${res.status} - ${errText}`);
     recordFailure();
     throw Object.assign(new Error("provider error"), { code: "PROVIDER", status: res.status });
