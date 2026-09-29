@@ -17,6 +17,38 @@ function recordFailure() {
   }
 }
 
+function createStrictSchema(hintStr, name) {
+  const obj = JSON.parse(hintStr);
+  
+  function infer(val) {
+    if (typeof val === "string") return { type: ["string", "null"] };
+    if (Array.isArray(val)) {
+      if (val.length === 0) return { type: ["array", "null"], items: { type: ["string", "null"] } };
+      return { type: ["array", "null"], items: infer(val[0]) };
+    }
+    if (typeof val === "object" && val !== null) {
+      const props = {};
+      for (const k in val) props[k] = infer(val[k]);
+      return { type: ["object", "null"], properties: props, required: Object.keys(val), additionalProperties: false };
+    }
+    return { type: ["string", "null"] };
+  }
+
+  const properties = {};
+  for (const k in obj) properties[k] = infer(obj[k]);
+
+  return {
+    name: name,
+    strict: true,
+    schema: {
+      type: "object",
+      properties: properties,
+      required: Object.keys(obj),
+      additionalProperties: false
+    }
+  };
+}
+
 /** Call Groq API. Handles retries and circuit breaker. */
 async function callGroq({ system, data, instruction, schemaHint }, attempt = 0) {
   if (Date.now() < downUntil) {
@@ -25,10 +57,12 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0) 
 
   const model = process.env.GROQ_MODEL || process.env.AI_MODEL || "openai/gpt-oss-120b";
   
-  // Base 15s + ~1s per 1000 tokens, capped at ~30s
   const estTokens = (system.length + data.length + instruction.length) / 4;
-  const dynamicTimeout = Math.round(Math.min(30000, 15000 + (estTokens / 1000) * 1000));
+  const dynamicTimeout = Math.round(Math.min(60000, 15000 + (estTokens / 1000) * 1000));
   const timeoutMs = process.env.AI_CALL_TIMEOUT_MS ? Number(process.env.AI_CALL_TIMEOUT_MS) : dynamicTimeout;
+  
+  const schemaName = schemaHint.includes("topics") ? "Report" : "ChunkNotes";
+  const jsonSchema = createStrictSchema(schemaHint, schemaName);
   
   let res;
   const startTime = Date.now();
@@ -42,19 +76,20 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0) 
       },
       body: JSON.stringify({
         model: model,
-        response_format: { type: "json_object" },
+        response_format: { type: "json_schema", json_schema: jsonSchema },
+        max_completion_tokens: 8192 + (attempt * 2000), // slightly increase budget on retries
+        temperature: 0.2,
         messages: [
-          { role: "system", content: system },
-          { role: "user", content: instruction + "\nReturn JSON shaped like: " + schemaHint + "\n\n<document_data>\n" + data + "\n</document_data>" }
-        ],
-        temperature: 0.2
+          { role: "system", content: system + "\nIMPORTANT: Return ONLY the exact requested JSON object. Do not explain, do not output markdown wrappers like ```json, and do not use chain-of-thought." },
+          { role: "user", content: instruction + "\n\n<document_data>\n" + data + "\n</document_data>" }
+        ]
       }),
     });
   } catch (e) {
     const elapsed = Date.now() - startTime;
     if (e.name === "TimeoutError") {
       console.warn(`Groq API call timed out after ${elapsed}ms (configured limit: ${timeoutMs}ms). Model: ${model}, Size: ~${estTokens} tokens.`);
-      if (attempt === 0) {
+      if (attempt < 2) {
         return callGroq({ system, data, instruction, schemaHint }, attempt + 1);
       }
       recordFailure();
@@ -77,12 +112,19 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0) 
     }
     
     if (res.status === 400) {
-      console.error(`Groq 400 Error (request/schema/parameter): ${errText}`);
+      if (errText.includes("json_validate_failed") || errText.includes("max completion tokens reached") || errText.includes("failed_generation")) {
+        console.warn(`[Diagnostics] model=${model} max_completion_tokens=${8192 + (attempt * 2000)} error=json_validate_failed/failed_generation.`);
+        if (attempt < 2) {
+          console.warn(`Retrying JSON generation (attempt ${attempt + 1})...`);
+          return callGroq({ system, data, instruction, schemaHint }, attempt + 1);
+        }
+      }
+      console.error(`Groq 400 Error (request/schema/parameter): ${errText.slice(0, 300)}`);
       throw Object.assign(new Error("request/schema error"), { code: "MALFORMED" });
     }
     
     if (res.status === 429 || res.status >= 500) {
-      if (attempt === 0) {
+      if (attempt < 2) {
         const retryAfter = res.headers.get("retry-after");
         const delay = retryAfter ? (isNaN(Number(retryAfter)) ? 500 : Number(retryAfter) * 1000) : 500;
         await sleep(delay);
@@ -103,6 +145,14 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0) 
   
   failures = 0; // reset on success
   const j = await res.json();
+  
+  if (j.choices?.[0]?.finish_reason === "length") {
+    if (attempt < 2) {
+      console.warn(`[Diagnostics] model=${model} finish_reason=length max_completion_tokens=${8192 + (attempt * 2000)}. Retrying...`);
+      return callGroq({ system, data, instruction, schemaHint }, attempt + 1);
+    }
+  }
+
   return j.choices?.[0]?.message?.content ?? "";
 }
 
