@@ -23,7 +23,13 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0) 
     throw Object.assign(new Error("circuit breaker open"), { code: "PROVIDER" });
   }
 
-  const model = process.env.AI_MODEL || "llama-3.1-8b-instant";
+  let model = process.env.AI_MODEL || "llama-3.1-8b-instant";
+  
+  // Safety override: if Render dashboard still has the retired/unavailable models, force the safe fallback
+  if (model === "openai/gpt-oss-120b" || model === "llama-3.3-70b-versatile") {
+    console.warn(`Overriding unavailable model '${model}' with 'llama-3.1-8b-instant'. Please update Render dashboard.`);
+    model = "llama-3.1-8b-instant";
+  }
   
   // Base 15s + ~1s per 1000 tokens, capped at ~30s
   const estTokens = (system.length + data.length + instruction.length) / 4;
