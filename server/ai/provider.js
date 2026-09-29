@@ -18,49 +18,54 @@ function getModels() {
 
 /** Call OpenRouter API. Handles built-in fallbacks via models array. */
 async function callOpenRouter({ system, data, instruction, schemaHint }) {
-  const models = getModels();
-  
-  let res;
   try {
-    res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST", 
-      signal: AbortSignal.timeout(PER_CALL_TIMEOUT),
-      headers: { 
-        "Content-Type": "application/json", 
-        "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}` 
-      },
-      body: JSON.stringify({
-        models: models,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: instruction + "\nReturn JSON shaped like: " + schemaHint + "\n\n<document_data>\n" + data + "\n</document_data>" }
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.2
-      }),
-    });
-  } catch (e) {
-    if (e.name === "TimeoutError") {
-      console.warn("OpenRouter API call timed out after 8s");
-      throw Object.assign(new Error("timed out"), { code: "TIMEOUT" });
+    const models = getModels();
+    
+    let res;
+    try {
+      res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST", 
+        signal: AbortSignal.timeout(PER_CALL_TIMEOUT),
+        headers: { 
+          "Content-Type": "application/json", 
+          "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}` 
+        },
+        body: JSON.stringify({
+          models: models,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: instruction + "\nReturn JSON shaped like: " + schemaHint + "\n\n<document_data>\n" + data + "\n</document_data>" }
+          ],
+          temperature: 0.2
+        }),
+      });
+    } catch (e) {
+      if (e.name === "TimeoutError") {
+        console.warn("OpenRouter API call timed out after 8s");
+        throw Object.assign(new Error("timed out"), { code: "TIMEOUT" });
+      }
+      console.error("OpenRouter network error:", e.message);
+      throw Object.assign(new Error("provider error"), { code: "PROVIDER" });
     }
-    console.error("OpenRouter network error:", e.message);
+
+    if (!res.ok) {
+      if (res.status === 429 || res.status === 503) {
+        const errText = await res.text().catch(() => "unknown");
+        console.warn(`OpenRouter returned ${res.status}: ${errText.slice(0, 200)}`);
+        throw Object.assign(new Error(`rate/overloaded ${res.status}`), { code: "RATE_LIMIT", status: res.status });
+      }
+      const errText = await res.text().catch(() => "unknown");
+      console.error(`OpenRouter API Error: ${res.status} - ${errText}`);
+      throw Object.assign(new Error("provider error"), { code: "PROVIDER", status: res.status });
+    }
+    
+    const j = await res.json();
+    return j.choices?.[0]?.message?.content ?? "";
+  } catch (err) {
+    if (err.code) throw err; // preserve existing error codes
+    console.error("Unexpected error in callOpenRouter:", err);
     throw Object.assign(new Error("provider error"), { code: "PROVIDER" });
   }
-
-  if (!res.ok) {
-    if (res.status === 429 || res.status === 503) {
-      const errText = await res.text().catch(() => "unknown");
-      console.warn(`OpenRouter returned ${res.status}: ${errText.slice(0, 200)}`);
-      throw Object.assign(new Error(`rate/overloaded ${res.status}`), { code: "RATE_LIMIT", status: res.status });
-    }
-    const errText = await res.text().catch(() => "unknown");
-    console.error(`OpenRouter API Error: ${res.status} - ${errText}`);
-    throw Object.assign(new Error("provider error"), { code: "PROVIDER", status: res.status });
-  }
-  
-  const j = await res.json();
-  return j.choices?.[0]?.message?.content ?? "";
 }
 
 export function getProvider() {
