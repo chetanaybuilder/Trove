@@ -15,6 +15,8 @@ function recordFailure() {
     downUntil = Date.now() + 60000;
     failures = 0;
   }
+}
+
 const FALLBACK_MODELS = [
   process.env.GROQ_MODEL || process.env.AI_MODEL,
   "deepseek-r1-distill-llama-70b",
