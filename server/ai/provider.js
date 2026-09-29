@@ -21,17 +21,19 @@ function createStrictSchema(hintStr, name) {
   const obj = JSON.parse(hintStr);
   
   function infer(val) {
-    if (typeof val === "string") return { type: ["string", "null"] };
+    if (typeof val === "string") return { type: "string" };
+    if (typeof val === "number") return { type: "number" };
+    if (typeof val === "boolean") return { type: "boolean" };
     if (Array.isArray(val)) {
-      if (val.length === 0) return { type: ["array", "null"], items: { type: ["string", "null"] } };
-      return { type: ["array", "null"], items: infer(val[0]) };
+      if (val.length === 0) return { type: "array", items: { type: "string" } };
+      return { type: "array", items: infer(val[0]) };
     }
     if (typeof val === "object" && val !== null) {
       const props = {};
       for (const k in val) props[k] = infer(val[k]);
-      return { type: ["object", "null"], properties: props, required: Object.keys(val), additionalProperties: false };
+      return { type: "object", properties: props, required: Object.keys(val), additionalProperties: false };
     }
-    return { type: ["string", "null"] };
+    return { type: "string" };
   }
 
   const properties = {};
@@ -77,10 +79,10 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0) 
       body: JSON.stringify({
         model: model,
         response_format: { type: "json_schema", json_schema: jsonSchema },
-        max_completion_tokens: 8192 + (attempt * 2000), // slightly increase budget on retries
+        max_completion_tokens: 12192,
         temperature: 0.2,
         messages: [
-          { role: "system", content: system + "\nIMPORTANT: Return ONLY the exact requested JSON object. Do not explain, do not output markdown wrappers like ```json, and do not use chain-of-thought." },
+          { role: "system", content: system + "\n\nCRITICAL OUTPUT REQUIREMENTS:\n1. OUTPUT ONLY JSON. Do not return markdown, ```json, or commentary.\n2. Your response MUST be a JSON object matching the provided schema.\n3. Every required property MUST be present. Never omit a property because there is no information.\n4. For an empty collection, return [] instead of omitting the property.\n5. Do not invent facts to fill an empty section." },
           { role: "user", content: instruction + "\n\n<document_data>\n" + data + "\n</document_data>" }
         ]
       }),
@@ -88,53 +90,45 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0) 
   } catch (e) {
     const elapsed = Date.now() - startTime;
     if (e.name === "TimeoutError") {
-      console.warn(`Groq API call timed out after ${elapsed}ms (configured limit: ${timeoutMs}ms). Model: ${model}, Size: ~${estTokens} tokens.`);
-      if (attempt < 2) {
-        return callGroq({ system, data, instruction, schemaHint }, attempt + 1);
-      }
+      console.warn(`Groq API call timed out after ${elapsed}ms (limit: ${timeoutMs}ms). Model: ${model}.`);
+      if (attempt < 2) return callGroq({ system, data, instruction, schemaHint }, attempt + 1);
       recordFailure();
       throw Object.assign(new Error("timed out"), { code: "TIMEOUT" });
     }
-    console.error(`Groq network error after ${elapsed}ms:`, e.message, `Model: ${model}, Size: ~${estTokens} tokens.`);
+    console.error(`Groq network error after ${elapsed}ms:`, e.message);
     recordFailure();
     throw Object.assign(new Error("provider error"), { code: "PROVIDER" });
   }
 
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403) {
-      throw Object.assign(new Error("auth failed"), { code: "AUTH" });
-    }
-    
+    if (res.status === 401 || res.status === 403) throw Object.assign(new Error("auth failed"), { code: "AUTH" });
     const errText = await res.text().catch(() => "unknown");
-    
-    if (res.status === 404) {
-      throw Object.assign(new Error("model/configuration error"), { code: "MODEL_ERROR" });
-    }
+    if (res.status === 404) throw Object.assign(new Error("model/configuration error"), { code: "MODEL_ERROR" });
     
     if (res.status === 400) {
       if (errText.includes("json_validate_failed") || errText.includes("max completion tokens reached") || errText.includes("failed_generation")) {
-        console.warn(`[Diagnostics] model=${model} max_completion_tokens=${8192 + (attempt * 2000)} error=json_validate_failed/failed_generation.`);
-        if (attempt < 2) {
-          console.warn(`Retrying JSON generation (attempt ${attempt + 1})...`);
-          return callGroq({ system, data, instruction, schemaHint }, attempt + 1);
+        console.warn(`[Diagnostics] model=${model} max_completion_tokens=12192 error=json_validate_failed/failed_generation.`);
+        // Only perform ONE controlled recovery attempt for schema validation errors
+        if (attempt === 0) {
+          console.warn(`Recovering JSON generation (attempt 1)...`);
+          return callGroq({ system, data, instruction, schemaHint }, 1);
         }
       }
-      console.error(`Groq 400 Error (request/schema/parameter): ${errText.slice(0, 300)}`);
+      console.error(`Groq 400 Error (request/schema): ${errText.slice(0, 300)}`);
       throw Object.assign(new Error("request/schema error"), { code: "MALFORMED" });
     }
     
+    // Genuinely transient errors (429, 500, 502, 503, 504) get retried with bounded backoff
     if (res.status === 429 || res.status >= 500) {
       if (attempt < 2) {
         const retryAfter = res.headers.get("retry-after");
-        const delay = retryAfter ? (isNaN(Number(retryAfter)) ? 500 : Number(retryAfter) * 1000) : 500;
+        const delay = retryAfter ? (isNaN(Number(retryAfter)) ? 1000 : Number(retryAfter) * 1000) : 1000 * Math.pow(2, attempt);
         await sleep(delay);
         return callGroq({ system, data, instruction, schemaHint }, attempt + 1);
       }
       console.warn(`Groq returned ${res.status}: ${errText.slice(0, 200)}`);
       recordFailure();
-      if (res.status === 429) {
-        throw Object.assign(new Error(`rate limit ${res.status}`), { code: "RATE_LIMIT", status: res.status });
-      }
+      if (res.status === 429) throw Object.assign(new Error(`rate limit ${res.status}`), { code: "RATE_LIMIT", status: res.status });
       throw Object.assign(new Error(`provider error ${res.status}`), { code: "PROVIDER", status: res.status });
     }
     
@@ -147,9 +141,9 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0) 
   const j = await res.json();
   
   if (j.choices?.[0]?.finish_reason === "length") {
-    if (attempt < 2) {
-      console.warn(`[Diagnostics] model=${model} finish_reason=length max_completion_tokens=${8192 + (attempt * 2000)}. Retrying...`);
-      return callGroq({ system, data, instruction, schemaHint }, attempt + 1);
+    if (attempt === 0) {
+      console.warn(`[Diagnostics] model=${model} finish_reason=length max_completion_tokens=12192. Retrying...`);
+      return callGroq({ system, data, instruction, schemaHint }, 1);
     }
   }
 
