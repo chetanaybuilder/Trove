@@ -6,36 +6,36 @@ const S = z.array(z.string()).default([]);
 
 // Extremely compact representation. No giant text blocks.
 export const ChunkNotes = z.object({
-  entities: z.array(z.object({ name: z.string(), type: z.string() })).default([]),
-  events: z.array(z.object({ date: z.string(), description: z.string(), importance: z.number().default(5) })).default([]),
   facts: z.array(z.string()).default([]),
+  entities: z.array(z.string()).default([]),
+  events: z.array(z.string()).default([]),
   contradictions: z.array(z.string()).default([])
 });
 
 export const Report = z.object({
-  document_type: z.string().default("unknown"),
-  title: z.string(), overview: z.string(), key_points: S,
-  events: z.array(z.object({ name: z.string(), detail: z.string() })).default([]),
-  topics: z.array(z.object({ name: z.string(), detail: z.string() })).default([]),
-  people: S, relationships: S, dates: S, decisions: S, actions: S, questions: S,
-  unresolved: S, contradictions: S, evidence: S, themes: S,
-  conclusion: z.string(), confidence: z.string().default(""),
+  summary: z.string().default(""),
+  findings: z.array(z.string()).default([]),
+  entities: z.array(z.string()).default([]),
+  events: z.array(z.string()).default([]),
+  contradictions: z.array(z.string()).default([]),
+  unresolved: z.array(z.string()).default([])
 });
 
 const SummaryReport = z.object({
-  document_type: z.string().default("unknown"), title: z.string(), overview: z.string(), key_points: S,
-  events: z.array(z.object({ name: z.string(), detail: z.string() })).default([]),
-  people: S, conclusion: z.string(), confidence: z.string().default("")
+  summary: z.string().default(""),
+  findings: z.array(z.string()).default([]),
+  entities: z.array(z.string()).default([])
 });
 
-const SYSTEM = `You are Trove, a professional document intelligence engine. 
-Distinguish carefully between FACT (directly stated), INFERENCE (reasonably deduced), and CLAIM (alleged by a source). 
-Do not invent facts, causality, or false certainty. 
-Maintain entity resolution (note if identities might be the same).`;
+const SYSTEM = `You are Trove, an information extraction engine. 
+Return ONLY valid JSON matching the provided schema.
+Do not write markdown, explanations, commentary, introductory text, or conclusions outside the JSON.
+Every required field MUST be present. If a field has no values, return an empty array.
+If information is uncertain, preserve uncertainty inside the field rather than inventing facts.`;
 
-const NOTES_HINT = JSON.stringify({ entities: [{ name: "", type: "" }], events: [{ date: "", description: "", importance: 5 }], facts: [""], contradictions: [""] });
-const REPORT_HINT = JSON.stringify({ document_type: "", title: "", overview: "", key_points: [""], events: [{ name: "", detail: "" }], topics: [{ name: "", detail: "" }], people: [""], relationships: [""], dates: [""], decisions: [""], actions: [""], questions: [""], unresolved: [""], contradictions: [""], evidence: [""], themes: [""], conclusion: "", confidence: "" });
-const SUMMARY_REPORT_HINT = JSON.stringify({ document_type: "", title: "", overview: "", key_points: [""], events: [{ name: "", detail: "" }], people: [""], conclusion: "", confidence: "" });
+const NOTES_HINT = JSON.stringify({ facts: [""], entities: [""], events: [""], contradictions: [""] });
+const REPORT_HINT = JSON.stringify({ summary: "", findings: [""], entities: [""], events: [""], contradictions: [""], unresolved: [""] });
+const SUMMARY_REPORT_HINT = JSON.stringify({ summary: "", findings: [""], entities: [""] });
 
 const OVERALL_DEADLINE_MS = Number(process.env.ANALYSIS_DEADLINE_MS || 90000);
 const MAX_COMPRESSED_TOKENS = 3000; // Hard cap on local intelligence output
@@ -99,7 +99,7 @@ export async function analyze(raw, { modes = ["quick"], focus = "" } = {}, onPro
       onProgress({ stage: "synthesis", mode: "summary" });
       reports.quick = await ai.generateJSON({ 
         system: SYSTEM, data: finalRepresentation, schemaHint: SUMMARY_REPORT_HINT, maxOutputTokens: 1000,
-        mock: () => JSON.stringify({ title: "Mock Summary", overview: "ok", conclusion: "ok", key_points: [], events: [], people: [] }),
+        mock: () => JSON.stringify({ summary: "Mock Summary", findings: [], entities: [] }),
         instruction: `FINAL SYNTHESIS (SUMMARY MODE): Generate a compact summary report from this evidence map. Focus on the overview, major points, important entities, and conclusion.${focus ? " Focus: " + focus : ""}` 
       }, SummaryReport);
     }
@@ -108,7 +108,7 @@ export async function analyze(raw, { modes = ["quick"], focus = "" } = {}, onPro
       onProgress({ stage: "synthesis", mode: "deep" });
       reports.deep = await ai.generateJSON({ 
         system: SYSTEM, data: finalRepresentation, schemaHint: REPORT_HINT, maxOutputTokens: 2200,
-        mock: () => JSON.stringify({ title: "Mock Deep", overview: "ok", conclusion: "ok", key_points: [], events: [], topics: [], people: [], relationships: [], dates: [], decisions: [], actions: [], questions: [], unresolved: [], contradictions: [], evidence: [], themes: [] }),
+        mock: () => JSON.stringify({ summary: "Mock Deep", findings: [], entities: [], events: [], contradictions: [], unresolved: [] }),
         instruction: `FINAL SYNTHESIS (DEEP MODE): Generate a comprehensive intelligence report from this evidence map. Include key findings, entity relationships, timeline, contradictions, and unresolved mysteries.${focus ? " Focus: " + focus : ""}` 
       }, Report);
     }

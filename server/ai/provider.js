@@ -167,11 +167,28 @@ async function callGroq({ system, data, instruction, schemaHint, maxOutputTokens
     if (res.status === 413) throw Object.assign(new Error("payload too large"), { code: "REQUEST_TOO_LARGE" });
     
     if (res.status === 400) {
-      // If the provider rejects structured outputs natively, fallback to json_object safely.
+      let errObj = {};
+      try { errObj = JSON.parse(errText); } catch(e) {}
+      
+      const isJsonValidation = errObj?.error?.code === "json_validate_failed" || errText.includes("json_validate_failed");
+      
+      if (isJsonValidation) {
+        const failedGen = errObj?.error?.failed_generation || "";
+        console.error(`[Groq] JSON VALIDATION FAILURE\nschema=${schemaName}\nfailedGenerationLength=${failedGen.length}\nfailedGenerationPreview="${failedGen.slice(0, 300)}"\nproviderMessage=${errObj?.error?.message || errText}`);
+        
+        if (!_fallbackMode) {
+          console.warn(`[Groq] Native validation failed. Falling back to json_object...`);
+          return callGroq({ system, data, instruction, schemaHint, maxOutputTokens, _fallbackMode: true }, 0);
+        }
+        throw Object.assign(new Error("provider rejected model JSON"), { code: "PROVIDER_JSON_VALIDATION_ERROR", details: errText });
+      }
+
+      // If the provider rejects structured outputs configuration natively, fallback to json_object safely.
       if (!_fallbackMode && (errText.includes("response_format") || errText.includes("json_schema") || errText.includes("schema") || errText.includes("max_tokens") || errText.includes("max_completion_tokens"))) {
         console.warn(`[Groq] Provider rejected strict payload. Falling back to json_object...`);
         return callGroq({ system, data, instruction, schemaHint, maxOutputTokens, _fallbackMode: true }, 0);
       }
+      
       // Do NOT retry malformed requests unchanged.
       throw Object.assign(new Error("malformed request: " + errText), { code: "MALFORMED_REQUEST", details: errText });
     }
