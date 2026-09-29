@@ -17,34 +17,13 @@ function recordFailure() {
   }
 }
 
-const FALLBACK_MODELS = [
-  process.env.GROQ_MODEL || process.env.AI_MODEL,
-  "llama-4-maverick-17b-128e-instruct",
-  "llama-4-scout-17b-16e-instruct",
-  "deepseek-r1-distill-llama-70b",
-  "llama-3.3-70b-specdec",
-  "llama-3.3-70b-versatile",
-  "llama-3.2-90b-vision-preview",
-  "llama-3.1-8b-instant",
-  "gemma2-9b-it",
-  "mixtral-8x7b-32768",
-  "llama3-8b-8192",
-  "llama3-70b-8192"
-];
-
 /** Call Groq API. Handles retries and circuit breaker. */
-async function callGroq({ system, data, instruction, schemaHint }, attempt = 0, modelIndex = 0) {
+async function callGroq({ system, data, instruction, schemaHint }, attempt = 0) {
   if (Date.now() < downUntil) {
     throw Object.assign(new Error("circuit breaker open"), { code: "PROVIDER" });
   }
 
-  // Deduplicate the array so we don't try the same configured model twice if it matches a fallback
-  const uniqueModels = Array.from(new Set(FALLBACK_MODELS)).filter(Boolean);
-  const model = uniqueModels[modelIndex];
-  
-  if (!model) {
-    throw Object.assign(new Error("model not found"), { code: "MODEL_ERROR" });
-  }
+  const model = process.env.GROQ_MODEL || process.env.AI_MODEL || "openai/gpt-oss-120b";
   
   // Base 15s + ~1s per 1000 tokens, capped at ~30s
   const estTokens = (system.length + data.length + instruction.length) / 4;
@@ -76,7 +55,7 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0, 
     if (e.name === "TimeoutError") {
       console.warn(`Groq API call timed out after ${elapsed}ms (configured limit: ${timeoutMs}ms). Model: ${model}, Size: ~${estTokens} tokens.`);
       if (attempt === 0) {
-        return callGroq({ system, data, instruction, schemaHint }, attempt + 1, modelIndex);
+        return callGroq({ system, data, instruction, schemaHint }, attempt + 1);
       }
       recordFailure();
       throw Object.assign(new Error("timed out"), { code: "TIMEOUT" });
@@ -88,32 +67,33 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0, 
 
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) {
-      // Auth failed, do not retry
       throw Object.assign(new Error("auth failed"), { code: "AUTH" });
     }
     
-    // Read the error text now because we need it for 400 and 429 logic
     const errText = await res.text().catch(() => "unknown");
     
-    // If it's a 404 (model not found) OR a 400 that says decommissioned, we trigger the array fallback
-    if (res.status === 404 || (res.status === 400 && (errText.includes("decommissioned") || errText.includes("model_not_found")))) {
-      if (modelIndex < uniqueModels.length - 1) {
-        console.warn(`Groq model '${model}' not found/decommissioned (${res.status}). Falling back to '${uniqueModels[modelIndex + 1]}'.`);
-        return callGroq({ system, data, instruction, schemaHint }, attempt, modelIndex + 1);
-      }
-      throw Object.assign(new Error("model not found"), { code: "MODEL_ERROR" });
+    if (res.status === 404) {
+      throw Object.assign(new Error("model/configuration error"), { code: "MODEL_ERROR" });
     }
     
-    if (res.status === 429 || res.status === 503) {
+    if (res.status === 400) {
+      console.error(`Groq 400 Error (request/schema/parameter): ${errText}`);
+      throw Object.assign(new Error("request/schema error"), { code: "MALFORMED" });
+    }
+    
+    if (res.status === 429 || res.status >= 500) {
       if (attempt === 0) {
         const retryAfter = res.headers.get("retry-after");
         const delay = retryAfter ? (isNaN(Number(retryAfter)) ? 500 : Number(retryAfter) * 1000) : 500;
         await sleep(delay);
-        return callGroq({ system, data, instruction, schemaHint }, attempt + 1, modelIndex);
+        return callGroq({ system, data, instruction, schemaHint }, attempt + 1);
       }
       console.warn(`Groq returned ${res.status}: ${errText.slice(0, 200)}`);
       recordFailure();
-      throw Object.assign(new Error(`rate/overloaded ${res.status}`), { code: "OVERLOAD", status: res.status });
+      if (res.status === 429) {
+        throw Object.assign(new Error(`rate limit ${res.status}`), { code: "RATE_LIMIT", status: res.status });
+      }
+      throw Object.assign(new Error(`provider error ${res.status}`), { code: "PROVIDER", status: res.status });
     }
     
     console.error(`Groq API Error: ${res.status} - ${errText}`);
