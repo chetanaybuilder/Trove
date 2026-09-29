@@ -37,7 +37,23 @@ authRouter.get("/google", (req, res) => {
 });
 authRouter.get("/google/callback", async (req, res) => {
   try {
-    if (!req.query.state || req.query.state !== cookies(req).trove_state) throw new Error("state");
+    const cookieState = cookies(req).trove_state;
+    const queryState = req.query.state;
+    if (!cookieState && !queryState) {
+      console.error("Auth state check failed: both cookie and query state are missing");
+      throw new Error("state_missing");
+    } else if (!cookieState) {
+      console.error("Auth state check failed: trove_state cookie is missing (possible double-click, cookie expired, or cookie blocked by browser)");
+      throw new Error("state_cookie_missing");
+    } else if (!queryState) {
+      console.error("Auth state check failed: state query parameter is missing from Google callback");
+      throw new Error("state_param_missing");
+    } else if (cookieState !== queryState) {
+      console.error(`Auth state check failed: value mismatch (cookie="${cookieState.slice(0, 8)}…" vs query="${queryState.slice(0, 8)}…") — likely double-click overwrote the cookie`);
+      throw new Error("state_mismatch");
+    }
+    // Clear the state cookie now that it's been validated
+    res.append("Set-Cookie", `trove_state=; Max-Age=0; ${flags()}`);
     const c = oauth(); const { tokens } = await c.getToken(String(req.query.code));
     const p = (await c.verifyIdToken({ idToken: tokens.id_token, audience: process.env.GOOGLE_CLIENT_ID })).getPayload();
     if (!p.email_verified) throw new Error("unverified");
@@ -45,7 +61,7 @@ authRouter.get("/google/callback", async (req, res) => {
     res.append("Set-Cookie", `trove_session=${sign({ uid: u.id, name: u.name, email: u.email, avatar: u.avatar_url, exp: Date.now() + 7 * 864e5 })}; Max-Age=${7 * 86400}; ${flags()}`);
     res.redirect(appUrl() + "/");
   } catch (err) {
-    console.error("Auth callback error:", err);
+    console.error("Auth callback error:", err.message);
     res.redirect(appUrl() + "/?auth=failed");
   }
 });

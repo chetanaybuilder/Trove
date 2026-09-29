@@ -9,3 +9,7 @@ services:
         value: 22.0.0
       - key: PORT
         value: 8787
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: 1

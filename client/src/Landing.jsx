@@ -1,6 +1,14 @@
-const CTA = ({ children = "Continue with Google", cls = "" }) => (
-  <a href="/auth/google" className={`inline-flex min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-amber-300 px-6 font-semibold text-slate-900 shadow-lg shadow-amber-300/20 transition hover:bg-amber-200 ${cls}`}>{children}</a>
-);
+import { useState } from "react";
+
+const CTA = ({ children = "Continue with Google", cls = "" }) => {
+  const [clicked, setClicked] = useState(false);
+  return (
+    <a href="/auth/google" className={`inline-flex min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-amber-300 px-6 font-semibold text-slate-900 shadow-lg shadow-amber-300/20 transition hover:bg-amber-200 ${cls} ${clicked ? "pointer-events-none opacity-60" : ""}`}
+       onClick={() => setClicked(true)}
+       aria-disabled={clicked || undefined}
+    >{clicked ? "Redirecting…" : children}</a>
+  );
+};
 const features = [["Massive text", "Handles 50,000+ lines by chunking at natural boundaries, never one giant prompt."], ["Quick summaries", "The essentials, decisions and action items in under a minute."], ["Deep reports", "Chapters, timeline, entities, contradictions and open questions."], ["PDF intelligence", "Upload PDFs or TXT, or paste anything."], ["Structured extraction", "People, dates, decisions and actions pulled into clean sections."], ["Export-ready", "Polished PDF with headers, footers and page numbers."]];
 const steps = ["Upload or paste", "Trove understands", "Trove structures", "Read & export"];
 
