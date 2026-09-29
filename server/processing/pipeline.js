@@ -13,7 +13,14 @@ export const Report = z.object({
   entities: z.array(z.string()).default([]),
   events: z.array(z.string()).default([]),
   contradictions: z.array(z.string()).default([]),
-  unresolved: z.array(z.string()).default([])
+  unresolved: z.array(z.string()).default([]),
+  sectionInsights: z.array(z.object({
+    lines: z.string(),
+    title: z.string(),
+    meaning: z.string(),
+    connections: z.string(),
+    evidence: z.string()
+  })).default([])
 });
 
 const SummaryReport = z.object({
@@ -22,13 +29,13 @@ const SummaryReport = z.object({
   entities: z.array(z.string()).default([])
 });
 
-const SYSTEM = `You are Trove, an information extraction engine. 
+const SYSTEM = `You are Trove, an expert document intelligence engine. 
 Return ONLY valid JSON matching the provided schema.
 Do not write markdown, explanations, commentary, introductory text, or conclusions outside the JSON.
-Every required field MUST be present. If a field has no values, return an empty array.
+Every required field MUST be present. If a field has no values, return an empty array or empty string.
 If information is uncertain, preserve uncertainty inside the field rather than inventing facts.`;
 
-const REPORT_HINT = JSON.stringify({ summary: "", findings: [""], entities: [""], events: [""], contradictions: [""], unresolved: [""] });
+const REPORT_HINT = JSON.stringify({ summary: "", findings: [""], entities: [""], events: [""], contradictions: [""], unresolved: [""], sectionInsights: [{ lines: "", title: "", meaning: "", connections: "", evidence: "" }] });
 const SUMMARY_REPORT_HINT = JSON.stringify({ summary: "", findings: [""], entities: [""] });
 
 const OVERALL_DEADLINE_MS = Number(process.env.ANALYSIS_DEADLINE_MS || 90000);
@@ -72,13 +79,23 @@ export async function analyze(raw, { modes = ["quick"], focus = "" } = {}, onPro
 
     const st = dim.statistics;
     const sentTokens = estimateTokens(evidenceJson);
-    const estimatedRequestCost = sentTokens + 2200; // rough budget
+    const estimatedRequestCost = sentTokens + 3000; // rough budget
+
+    const llmDisabled = process.env.LLM_DISABLED === "true";
 
     // Final Synthesis - Shared Analysis Result
     if (modes.includes("quick") || modes.includes("summary")) {
       const cached = getReport(docHash, "summary");
       if (cached) {
         reports.quick = cached;
+      } else if (llmDisabled) {
+        onProgress({ stage: "synthesis", mode: "summary", msg: "Local Only Mode (Skipped LLM)" });
+        reports.quick = {
+          summary: "Local Extraction Only (LLM Disabled)",
+          findings: dim.decisions.slice(0, 5).map(d => d.text) || [],
+          entities: dim.entities.slice(0, 10)
+        };
+        setReport(docHash, "summary", reports.quick);
       } else {
         try {
           globalBudget.reserveTokens(estimatedRequestCost);
@@ -101,14 +118,26 @@ export async function analyze(raw, { modes = ["quick"], focus = "" } = {}, onPro
       const cached = getReport(docHash, "deep");
       if (cached) {
         reports.deep = cached;
+      } else if (llmDisabled) {
+        onProgress({ stage: "synthesis", mode: "deep", msg: "Local Only Mode (Skipped LLM)" });
+        reports.deep = {
+          summary: "Local Extraction Only (LLM Disabled)",
+          findings: dim.decisions.map(d => d.text) || [],
+          entities: dim.entities || [],
+          events: dim.events.map(e => e.text).slice(0, 10),
+          contradictions: dim.contradictions.map(c => c.text),
+          unresolved: dim.unresolved.map(u => u.text),
+          sectionInsights: [{ lines: "All", title: "Local Extracted Data", meaning: "LLM synthesis was disabled.", connections: "", evidence: "" }]
+        };
+        setReport(docHash, "deep", reports.deep);
       } else {
         try {
           globalBudget.reserveTokens(estimatedRequestCost);
           onProgress({ stage: "synthesis", mode: "deep" });
           reports.deep = await ai.generateJSON({ 
-            system: SYSTEM, data: evidenceJson, schemaHint: REPORT_HINT, maxOutputTokens: 2200,
-            mock: () => JSON.stringify({ summary: "Mock Deep", findings: [], entities: [], events: [], contradictions: [], unresolved: [] }),
-            instruction: `FINAL SYNTHESIS (DEEP MODE): Generate a comprehensive intelligence report from this evidence map. Include key findings, entity relationships, timeline, contradictions, and unresolved mysteries.${focus ? " Focus: " + focus : ""}` 
+            system: SYSTEM, data: evidenceJson, schemaHint: REPORT_HINT, maxOutputTokens: 3000,
+            mock: () => JSON.stringify({ summary: "Mock Deep", findings: [], entities: [], events: [], contradictions: [], unresolved: [], sectionInsights: [{ lines: "1-100", title: "Mock", meaning: "Mock", connections: "", evidence: "" }] }),
+            instruction: `FINAL SYNTHESIS (DEEP MODE): Generate a comprehensive intelligence report from this evidence map. Include key findings, entity relationships, timeline, contradictions, and unresolved mysteries. \n\nCrucially, populate the 'sectionInsights' array by grouping related lines into sections and analyzing the deep meaning, importance, implications, connections to other sections, and explicitly referencing source lines as evidence.${focus ? " Focus: " + focus : ""}` 
           }, Report);
           setReport(docHash, "deep", reports.deep);
         } catch (e) {

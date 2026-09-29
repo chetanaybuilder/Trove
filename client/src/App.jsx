@@ -61,7 +61,14 @@ function Report({ id, onBack }) {
             <summary className="flex min-h-[44px] cursor-pointer items-center justify-between font-display text-lg text-amber-200">{s.title}
               <span className="flex"><button aria-label={`Copy ${s.title}`} onClick={(e) => { e.preventDefault(); copy(`${s.title}\n${secText(s.content)}`); }} className="rounded-lg px-3 py-2 text-xs text-slate-300 hover:bg-white/10 print:hidden">Copy</button><button aria-label={`Regenerate ${s.title}`} onClick={(e) => { e.preventDefault(); regen(s); }} className="rounded-lg px-3 py-2 text-xs text-slate-300 hover:bg-white/10 print:hidden">Redo</button></span></summary>
             {typeof s.content === "string" ? <p className="mt-2 leading-7 text-slate-200"><Hl text={s.content} q={ql} /></p>
-              : <ul className="mt-2 space-y-2 leading-7 text-slate-200">{s.content.map((x, k) => <li key={k} className="flex gap-2"><span className="text-sky-300">•</span><span>{typeof x === "string" ? <Hl text={x} q={ql} /> : <><b>{x.name}</b> — <Hl text={x.detail} q={ql} /></>}</span></li>)}</ul>}
+              : <ul className="mt-2 space-y-2 leading-7 text-slate-200">{s.content.map((x, k) => <li key={k} className={typeof x === "object" && x.meaning ? "w-full" : "flex gap-2"}>{typeof x === "object" && x.meaning ? null : <span className="text-sky-300">•</span>}<span>{typeof x === "string" ? <Hl text={x} q={ql} /> : x.meaning ? (
+                <div className="flex flex-col mb-4 bg-white/5 p-4 rounded-xl border border-white/10 w-full">
+                  <div className="text-amber-300 font-semibold mb-1 uppercase tracking-wider text-xs">Lines {x.lines}: {x.title || "Insight"}</div>
+                  <div className="text-slate-200 mb-2 font-medium">Meaning: <span className="font-normal text-slate-300"><Hl text={x.meaning} q={ql} /></span></div>
+                  {x.connections && <div className="text-slate-400 text-sm italic mb-1">Connections: {x.connections}</div>}
+                  {x.evidence && <div className="text-slate-500 text-xs mt-2 border-t border-white/5 pt-2">Evidence: {x.evidence}</div>}
+                </div>
+              ) : <><b>{x.name || x.title}</b> — <Hl text={x.detail || x.content || ""} q={ql} /></>}</span></li>)}</ul>}
           </details>
         ))}
       </div>

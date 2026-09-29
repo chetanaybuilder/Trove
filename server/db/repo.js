@@ -24,21 +24,13 @@ export const updateAnalysis = (userId, id, { status, stage, chunksDone, chunksTo
   [id, userId, status ?? null, stage ?? null, chunksDone ?? null, chunksTotal ?? null, error ?? null]);
 
 const SECTIONS = [
-  ["overview", "Executive Summary", "overview"],
-  ["key_points", "Key Findings"],
+  ["summary", "Executive Summary", "overview"],
+  ["findings", "Key Findings"],
+  ["entities", "Entities"],
   ["events", "Key Events"],
-  ["topics", "Topics & Analysis"],
-  ["people", "Entities"],
-  ["relationships", "Relationships"],
-  ["dates", "Timeline"],
-  ["decisions", "Decisions & Actions"],
-  ["actions", "Follow-up Actions"],
-  ["questions", "Questions"],
   ["unresolved", "Unresolved Mysteries"],
   ["contradictions", "Contradictions & Ambiguities"],
-  ["evidence", "Important Evidence"],
-  ["themes", "Themes & Patterns"],
-  ["conclusion", "Conclusion"]
+  ["sectionInsights", "Deep Section Analysis"]
 ];
 
 /** Saves report + non-empty sections atomically. */
@@ -46,14 +38,15 @@ export async function saveReport(userId, analysisId, report) {
   const c = await getPool().connect();
   try {
     await c.query("BEGIN");
+    const title = report.title || report.summary?.slice(0, 50) || "Analysis Report";
     const r = one(await c.query(
       `INSERT INTO reports (analysis_id,user_id,title,executive_summary,report_data)
-       SELECT $1,$2,$3,$4,$5 FROM analyses WHERE id=$1 AND user_id=$2 RETURNING *`, [analysisId, userId, report.title, report.overview, report]));
+       SELECT $1,$2,$3,$4,$5 FROM analyses WHERE id=$1 AND user_id=$2 RETURNING *`, [analysisId, userId, title, report.summary, report]));
     if (!r) throw Object.assign(new Error("Analysis not found"), { code: "NOT_FOUND" });
     let pos = 0;
-    for (const [key, title] of SECTIONS) {
+    for (const [key, sectionTitle] of SECTIONS) {
       const v = report[key]; if (!v || (Array.isArray(v) && !v.length)) continue;
-      await c.query("INSERT INTO report_sections (report_id,section_type,title,content,position) VALUES ($1,$2,$3,$4,$5)", [r.id, key, title, JSON.stringify(v), pos++]);
+      await c.query("INSERT INTO report_sections (report_id,section_type,title,content,position) VALUES ($1,$2,$3,$4,$5)", [r.id, key, sectionTitle, JSON.stringify(v), pos++]);
     }
     await c.query("COMMIT"); return r;
   } catch (e) { await c.query("ROLLBACK"); throw e; } finally { c.release(); }
