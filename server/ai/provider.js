@@ -20,23 +20,33 @@ function getModels() {
 async function callOpenRouter({ system, data, instruction, schemaHint }) {
   const models = getModels();
   
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST", 
-    signal: AbortSignal.timeout(PER_CALL_TIMEOUT),
-    headers: { 
-      "Content-Type": "application/json", 
-      "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}` 
-    },
-    body: JSON.stringify({
-      models: models,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: instruction + "\nReturn JSON shaped like: " + schemaHint + "\n\n<document_data>\n" + data + "\n</document_data>" }
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.2
-    }),
-  });
+  let res;
+  try {
+    res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST", 
+      signal: AbortSignal.timeout(PER_CALL_TIMEOUT),
+      headers: { 
+        "Content-Type": "application/json", 
+        "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}` 
+      },
+      body: JSON.stringify({
+        models: models,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: instruction + "\nReturn JSON shaped like: " + schemaHint + "\n\n<document_data>\n" + data + "\n</document_data>" }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.2
+      }),
+    });
+  } catch (e) {
+    if (e.name === "TimeoutError") {
+      console.warn("OpenRouter API call timed out after 8s");
+      throw Object.assign(new Error("timed out"), { code: "TIMEOUT" });
+    }
+    console.error("OpenRouter network error:", e.message);
+    throw Object.assign(new Error("provider error"), { code: "PROVIDER" });
+  }
 
   if (!res.ok) {
     if (res.status === 429 || res.status === 503) {
