@@ -23,8 +23,23 @@ export const updateAnalysis = (userId, id, { status, stage, chunksDone, chunksTo
    completed_at=CASE WHEN $3 IN ('completed','failed') THEN now() ELSE completed_at END WHERE id=$1 AND user_id=$2`,
   [id, userId, status ?? null, stage ?? null, chunksDone ?? null, chunksTotal ?? null, error ?? null]);
 
-const SECTIONS = [["overview", "Overview", "overview"], ["key_points", "Key Insights"], ["topics", "Topics"], ["people", "People & Entities"], ["dates", "Timeline"],
-  ["decisions", "Decisions"], ["actions", "Action Items"], ["questions", "Questions"], ["contradictions", "Contradictions"], ["conclusion", "Conclusion"]];
+const SECTIONS = [
+  ["overview", "Executive Summary", "overview"],
+  ["key_points", "Key Findings"],
+  ["events", "Key Events"],
+  ["topics", "Topics & Analysis"],
+  ["people", "Entities"],
+  ["relationships", "Relationships"],
+  ["dates", "Timeline"],
+  ["decisions", "Decisions & Actions"],
+  ["actions", "Follow-up Actions"],
+  ["questions", "Questions"],
+  ["unresolved", "Unresolved Mysteries"],
+  ["contradictions", "Contradictions & Ambiguities"],
+  ["evidence", "Important Evidence"],
+  ["themes", "Themes & Patterns"],
+  ["conclusion", "Conclusion"]
+];
 
 /** Saves report + non-empty sections atomically. */
 export async function saveReport(userId, analysisId, report) {
