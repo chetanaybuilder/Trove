@@ -35,6 +35,11 @@ function Report({ id, onBack }) {
   return (
     <article className="mx-auto max-w-2xl px-4 pb-32 pt-4 print:text-black">
       <button onClick={onBack} className={`${ghost} mb-4 print:hidden`}>← Back</button>
+      {r.report_data?.partial && (
+        <div role="alert" className="mb-6 rounded-xl bg-amber-500/15 p-4 text-sm text-amber-200 border border-amber-500/20">
+          <strong>Note:</strong> Some sections of this document could not be analyzed and were skipped. The report below is incomplete.
+        </div>
+      )}
       <h1 className="font-display text-3xl leading-tight">{r.title}</h1>
       <p className="mt-1 text-xs text-slate-400">{new Date(r.created_at).toLocaleDateString(undefined, { dateStyle: "long" })}</p>
       <div className="mt-4 flex flex-wrap gap-2 print:hidden">

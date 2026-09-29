@@ -67,16 +67,28 @@ export async function analyze(raw, { mode = "quick", focus = "" } = {}, onProgre
         onProgress({ stage: "chunk", done: ++done, total: chunks.length });
         return n;
       } catch (e) {
-        // Graceful degradation: log the failure, return empty notes, continue.
-        console.warn(`Chunk ${i + 1}/${chunks.length} failed (${e.code || e.message}), using empty notes`);
+        console.warn(`Chunk ${i + 1}/${chunks.length} failed:`, e);
         onProgress({ stage: "chunk", done: ++done, total: chunks.length, warning: `chunk ${i + 1} failed` });
-        return emptyNotes(`Chunk ${i + 1} analysis failed: ${e.code || e.message}`);
+        return { _failed: true, error: e };
       }
     }));
 
-    const chunkNotes = notes;
+    const successfulNotes = notes.filter(n => !n._failed);
+    const failedCount = notes.length - successfulNotes.length;
+    const totalCount = chunks.length;
+
+    if (failedCount === totalCount) {
+      throw Object.assign(new Error("The AI provider could not process this document. Please try again."), { code: "PROVIDER" });
+    }
+
+    const MAX_FAIL_RATE = 0.4;
+    if (failedCount / totalCount > MAX_FAIL_RATE) {
+      throw Object.assign(new Error("The AI provider could not process this document. Please try again."), { code: "PROVIDER" });
+    }
+
+    const chunkNotes = successfulNotes;
     // Hierarchical reduce: merge ordered groups of notes until they fit one synthesis call.
-    let level = 0, mergedNotes = [...notes];
+    let level = 0, mergedNotes = [...successfulNotes];
     while (notesTokens(mergedNotes) > MAX_SYNTH_TOKENS && mergedNotes.length > 1) {
       const groups = []; for (let i = 0; i < mergedNotes.length; i += 6) groups.push(mergedNotes.slice(i, i + 6));
       onProgress({ stage: "merge", level: ++level, groups: groups.length });
@@ -84,10 +96,32 @@ export async function analyze(raw, { mode = "quick", focus = "" } = {}, onProgre
         instruction: "Merge these ordered section notes into one. Deduplicate; keep all decisions, actions and specifics." }, ChunkNotes)));
     }
 
+    let missingNote = "";
+    if (failedCount > 0) {
+      missingNote = `\nNOTE: ${failedCount} of ${totalCount} sections could not be analyzed due to a temporary error and are not reflected below.`;
+    }
+
     onProgress({ stage: "synthesis" });
     const report = await ai.generateJSON({ system: SYSTEM, data: JSON.stringify(mergedNotes), schemaHint: REPORT_HINT,
       mock: () => JSON.stringify({ title: "Mock", overview: "ok", conclusion: "ok" }),
-      instruction: (mode === "deep" ? "Write a comprehensive report: detailed topics, timeline dates, contradictions, open questions, confidence notes." : "Write a concise summary: short overview, key points, decisions, actions.") + (focus ? " Focus: " + focus : "") }, Report);
+      instruction: (mode === "deep" ? "Write a comprehensive report: detailed topics, timeline dates, contradictions, open questions, confidence notes." : "Write a concise summary: short overview, key points, decisions, actions.") + (focus ? " Focus: " + focus : "") + missingNote }, Report);
+    
+    const indicatesFailure = ["failed", "could not", "no content", "insufficient information"].some(phrase => 
+      report.overview.toLowerCase().includes(phrase) || 
+      report.conclusion.toLowerCase().includes(phrase)
+    );
+    const hasData = report.key_points.length > 0 || report.people.length > 0 || report.decisions.length > 0 || report.actions.length > 0 || report.topics.length > 0;
+    
+    if (indicatesFailure && !hasData) {
+      throw Object.assign(new Error("The AI provider could not process this document. Please try again."), { code: "PROVIDER" });
+    }
+
+    if (failedCount > 0) {
+      report.partial = true;
+      report.failedChunks = failedCount;
+      report.totalChunks = totalCount;
+    }
+
     onProgress({ stage: "done" });
     return { report, stats: st, chunks: chunks.length, sentTokens, notes: chunkNotes };
   }
