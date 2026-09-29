@@ -10,8 +10,10 @@ import { JobQueue } from "./queue.js";
 import { getProvider } from "./ai/provider.js";
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import { analyze } from "./processing/pipeline.js";
-import { stats } from "./processing/chunker.js";
+import { estimateTokens } from "./processing/indexer.js";
 import { authRouter, requireAuth } from "./auth.js";
+
+const stats = (text) => ({ chars: text.length, lines: text.split("\n").length, tokens: estimateTokens(text) });
 import * as db from "./db/repo.js";
 import { reportPdf } from "./pdf.js";
 
