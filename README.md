@@ -9,10 +9,10 @@ Stack: React/Tailwind (frontend, in progress) · Node/Express · Neon PostgreSQL
 3. Click **Connect** and copy the **pooled** connection string.
 4. `cp .env.example .env` and paste it into `DATABASE_URL=`.
 
-## AI setup (OpenRouter)
-1. Sign up at https://openrouter.ai and generate an API key.
-2. Paste the key into `OPENROUTER_API_KEY=` in your `.env`.
-3. OpenRouter handles model fallbacks automatically based on the `OPENROUTER_MODELS` comma-separated list.
+## AI setup (Groq)
+1. Sign up at https://console.groq.com and generate an API key.
+2. Paste the key into `AI_API_KEY=` in your `.env`.
+3. Set your preferred model in `AI_MODEL=` (e.g. `llama-3.3-70b-versatile`).
 
 ## Run
 1. `npm install && npm run db:migrate`

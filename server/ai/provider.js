@@ -3,84 +3,104 @@
 
 class Sem { constructor(n) { this.n = n; this.q = []; }
   async run(fn) { if (this.n <= 0) await new Promise((r) => this.q.push(r)); else this.n--; try { return await fn(); } finally { const nx = this.q.shift(); nx ? nx() : this.n++; } } }
-const gate = new Sem(Number(process.env.AI_MAX_CONCURRENCY || 2)); // global cap on simultaneous provider calls
+const gate = new Sem(Number(process.env.AI_MAX_CONCURRENCY || 5)); // global cap on simultaneous provider calls
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Parse OPENROUTER_MODELS env var to get priority model array */
-function getModels() {
-  if (process.env.OPENROUTER_MODELS) {
-    return process.env.OPENROUTER_MODELS.split(",").map((m) => m.trim()).filter(Boolean);
+let failures = 0;
+let downUntil = 0;
+
+function recordFailure() {
+  failures++;
+  if (failures >= 3) {
+    downUntil = Date.now() + 60000;
+    failures = 0;
   }
-  return ["openrouter/free"]; // default
 }
 
-/** Call OpenRouter API. Handles built-in fallbacks via models array. */
-async function callOpenRouter({ system, data, instruction, schemaHint }) {
-  try {
-    const models = getModels();
-    
-    // Base 20s + ~1s per 1000 tokens, capped at 45s
-    const estTokens = (system.length + data.length + instruction.length) / 4;
-    const dynamicTimeout = Math.round(Math.min(45000, 20000 + (estTokens / 1000) * 1000));
-    const timeoutMs = process.env.AI_CALL_TIMEOUT_MS ? Number(process.env.AI_CALL_TIMEOUT_MS) : dynamicTimeout;
-    
-    let res;
-    const startTime = Date.now();
-    try {
-      res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST", 
-        signal: AbortSignal.timeout(timeoutMs),
-        headers: { 
-          "Content-Type": "application/json", 
-          "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}` 
-        },
-        body: JSON.stringify({
-          models: models,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: instruction + "\nReturn JSON shaped like: " + schemaHint + "\n\n<document_data>\n" + data + "\n</document_data>" }
-          ],
-          temperature: 0.2
-        }),
-      });
-    } catch (e) {
-      const elapsed = Date.now() - startTime;
-      if (e.name === "TimeoutError") {
-        console.warn(`OpenRouter API call timed out after ${elapsed}ms (configured limit: ${timeoutMs}ms). Models: ${models.join(",")}, Size: ~${estTokens} tokens.`);
-        throw Object.assign(new Error("timed out"), { code: "TIMEOUT" });
-      }
-      console.error(`OpenRouter network error after ${elapsed}ms:`, e.message, `Models: ${models.join(",")}, Size: ~${estTokens} tokens.`);
-      throw Object.assign(new Error("provider error"), { code: "PROVIDER" });
-    }
+/** Call Groq API. Handles retries and circuit breaker. */
+async function callGroq({ system, data, instruction, schemaHint }, attempt = 0) {
+  if (Date.now() < downUntil) {
+    throw Object.assign(new Error("circuit breaker open"), { code: "PROVIDER" });
+  }
 
-    if (!res.ok) {
-      if (res.status === 429 || res.status === 503) {
-        const errText = await res.text().catch(() => "unknown");
-        console.warn(`OpenRouter returned ${res.status}: ${errText.slice(0, 200)}`);
-        throw Object.assign(new Error(`rate/overloaded ${res.status}`), { code: "OVERLOAD", status: res.status });
+  const model = process.env.AI_MODEL || "llama-3.3-70b-versatile";
+  
+  // Base 15s + ~1s per 1000 tokens, capped at ~30s
+  const estTokens = (system.length + data.length + instruction.length) / 4;
+  const dynamicTimeout = Math.round(Math.min(30000, 15000 + (estTokens / 1000) * 1000));
+  const timeoutMs = process.env.AI_CALL_TIMEOUT_MS ? Number(process.env.AI_CALL_TIMEOUT_MS) : dynamicTimeout;
+  
+  let res;
+  const startTime = Date.now();
+  try {
+    res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST", 
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: { 
+        "Content-Type": "application/json", 
+        "Authorization": `Bearer ${process.env.AI_API_KEY}` 
+      },
+      body: JSON.stringify({
+        model: model,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: instruction + "\nReturn JSON shaped like: " + schemaHint + "\n\n<document_data>\n" + data + "\n</document_data>" }
+        ],
+        temperature: 0.2
+      }),
+    });
+  } catch (e) {
+    const elapsed = Date.now() - startTime;
+    if (e.name === "TimeoutError") {
+      console.warn(`Groq API call timed out after ${elapsed}ms (configured limit: ${timeoutMs}ms). Model: ${model}, Size: ~${estTokens} tokens.`);
+      if (attempt === 0) {
+        return callGroq({ system, data, instruction, schemaHint }, attempt + 1);
       }
-      const errText = await res.text().catch(() => "unknown");
-      console.error(`OpenRouter API Error: ${res.status} - ${errText}`);
-      throw Object.assign(new Error("provider error"), { code: "PROVIDER", status: res.status });
+      recordFailure();
+      throw Object.assign(new Error("timed out"), { code: "TIMEOUT" });
     }
-    
-    const j = await res.json();
-    return j.choices?.[0]?.message?.content ?? "";
-  } catch (err) {
-    if (err.code) throw err; // preserve existing error codes
-    console.error("Unexpected error in callOpenRouter:", err);
+    console.error(`Groq network error after ${elapsed}ms:`, e.message, `Model: ${model}, Size: ~${estTokens} tokens.`);
+    recordFailure();
     throw Object.assign(new Error("provider error"), { code: "PROVIDER" });
   }
+
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      // Auth failed, do not retry
+      throw Object.assign(new Error("auth failed"), { code: "AUTH" });
+    }
+    if (res.status === 429 || res.status === 503) {
+      if (attempt === 0) {
+        const retryAfter = res.headers.get("retry-after");
+        const delay = retryAfter ? (isNaN(Number(retryAfter)) ? 500 : Number(retryAfter) * 1000) : 500;
+        await sleep(delay);
+        return callGroq({ system, data, instruction, schemaHint }, attempt + 1);
+      }
+      const errText = await res.text().catch(() => "unknown");
+      console.warn(`Groq returned ${res.status}: ${errText.slice(0, 200)}`);
+      recordFailure();
+      throw Object.assign(new Error(`rate/overloaded ${res.status}`), { code: "OVERLOAD", status: res.status });
+    }
+    const errText = await res.text().catch(() => "unknown");
+    console.error(`Groq API Error: ${res.status} - ${errText}`);
+    recordFailure();
+    throw Object.assign(new Error("provider error"), { code: "PROVIDER", status: res.status });
+  }
+  
+  failures = 0; // reset on success
+  const j = await res.json();
+  return j.choices?.[0]?.message?.content ?? "";
 }
 
 export function getProvider() {
-  if (!process.env.OPENROUTER_API_KEY && !process.env.TROVE_MOCK) throw Object.assign(new Error("not configured"), { code: "CONFIG" });
+  if (!process.env.AI_API_KEY && !process.env.TROVE_MOCK) throw Object.assign(new Error("not configured"), { code: "CONFIG" });
   
   return {
     // Validates against a zod schema; retries once on malformed output.
     async generateJSON(args, schema) {
       for (let attempt = 0; attempt < 2; attempt++) {
-        const raw = process.env.TROVE_MOCK ? args.mock() : await gate.run(() => callOpenRouter(args));
+        const raw = process.env.TROVE_MOCK ? args.mock() : await gate.run(() => callGroq(args));
         try { 
           return schema.parse(JSON.parse(String(raw).replace(/^```json|```$/g, "").trim())); 
         } catch (e) { 

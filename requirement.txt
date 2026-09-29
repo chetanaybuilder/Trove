@@ -1,8 +1,0 @@
-fastapi
-uvicorn
-sqlalchemy
-alembic
-psycopg2-binary
-pydantic
-google-auth
-python-dotenv
