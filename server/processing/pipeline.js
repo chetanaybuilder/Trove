@@ -1,16 +1,11 @@
 import { z } from "zod";
 import { getProvider } from "../ai/provider.js";
-import { compress, estimateTokens, normalize, stats } from "./chunker.js";
+import { estimateTokens, normalize, buildDocumentIntelligenceMap, buildCompactEvidenceMap } from "./indexer.js";
+import { globalBudget } from "./budget.js";
+import { getIntelligence, setIntelligence, getEvidence, setEvidence, getReport, setReport } from "./cache.js";
+import crypto from "crypto";
 
 const S = z.array(z.string()).default([]);
-
-// Extremely compact representation. No giant text blocks.
-export const ChunkNotes = z.object({
-  facts: z.array(z.string()).default([]),
-  entities: z.array(z.string()).default([]),
-  events: z.array(z.string()).default([]),
-  contradictions: z.array(z.string()).default([])
-});
 
 export const Report = z.object({
   summary: z.string().default(""),
@@ -33,16 +28,11 @@ Do not write markdown, explanations, commentary, introductory text, or conclusio
 Every required field MUST be present. If a field has no values, return an empty array.
 If information is uncertain, preserve uncertainty inside the field rather than inventing facts.`;
 
-const NOTES_HINT = JSON.stringify({ facts: [""], entities: [""], events: [""], contradictions: [""] });
 const REPORT_HINT = JSON.stringify({ summary: "", findings: [""], entities: [""], events: [""], contradictions: [""], unresolved: [""] });
 const SUMMARY_REPORT_HINT = JSON.stringify({ summary: "", findings: [""], entities: [""] });
 
 const OVERALL_DEADLINE_MS = Number(process.env.ANALYSIS_DEADLINE_MS || 90000);
-const MAX_COMPRESSED_TOKENS = 3000; // Hard cap on local intelligence output
-
-function emptyNotes() {
-  return { entities: [], events: [], facts: [], contradictions: [] };
-}
+const MAX_COMPRESSED_TOKENS = 3000;
 
 function withDeadline(promise, ms, label) {
   let timer;
@@ -59,74 +49,88 @@ export async function analyze(raw, { modes = ["quick"], focus = "" } = {}, onPro
   async function guardedAnalyze() {
     const text = normalize(raw);
     if (text.length < 200) throw Object.assign(new Error("too short"), { code: "TOO_SHORT" });
-    const ai = getProvider(), st = stats(text);
     
-    // 1. LOCAL INTELLIGENCE ENGINE
-    // We do NOT send 60 chunks to the LLM. We crush the 100K lines locally down to 3,000 tokens of 
-    // the absolute highest-density evidence (names, dates, quotes, contradictions, beginnings/ends).
-    onProgress({ stage: "local_processing", stats: st });
-    const localMap = await compress(text, MAX_COMPRESSED_TOKENS);
-    const body = localMap.text;
-    const sentTokens = estimateTokens(body);
+    const docHash = crypto.createHash('sha256').update(text).digest('hex');
+    const ai = getProvider();
+    
+    const reports = {};
+    let dim = getIntelligence(docHash);
+    let evidenceJson = getEvidence(docHash);
 
-    let extraction = emptyNotes();
-    let extractionFailed = false;
-
-    // 2. ONE SINGLE LLM EXTRACTION CALL
-    // We send the highly compressed 3000 token representation to Groq to extract structured evidence.
-    onProgress({ stage: "extraction", sentTokens });
-    try {
-      extraction = await ai.generateJSON({ 
-        system: SYSTEM, data: body, schemaHint: NOTES_HINT, maxOutputTokens: 1200,
-        mock: () => JSON.stringify(emptyNotes()),
-        instruction: `PASS 1 - DOCUMENT INTELLIGENCE: Analyze this compressed intelligence map. Extract compact structured facts, entities (resolve aliases), temporal events, and candidate contradictions.${focus ? " Focus: " + focus : ""}` 
-      }, ChunkNotes);
-    } catch (e) {
-      console.warn(`Extraction failed:`, e);
-      extractionFailed = true;
-      if (e.code === "REQUEST_TOO_LARGE") {
-        throw Object.assign(new Error("The extracted text was too large for the model to process. Please try a smaller document."), { code: "PROVIDER" });
-      }
+    if (!dim) {
+      onProgress({ stage: "local_processing", msg: "Indexing document locally" });
+      const t0 = Date.now();
+      dim = buildDocumentIntelligenceMap(text);
+      dim.localProcessingMs = Date.now() - t0;
+      setIntelligence(docHash, dim);
+      
+      evidenceJson = buildCompactEvidenceMap(dim, MAX_COMPRESSED_TOKENS);
+      setEvidence(docHash, evidenceJson);
+    } else {
+      onProgress({ stage: "local_processing", msg: "Using cached document index" });
     }
 
-    // 3. FINAL SYNTHESIS
-    // Both Summary and Deep Report share the SAME intermediate extraction graph.
-    const finalRepresentation = JSON.stringify(extraction);
-    const reports = {};
-    
-    // Strict output token budgets to stay below 6000-token total request bounds
+    const st = dim.statistics;
+    const sentTokens = estimateTokens(evidenceJson);
+    const estimatedRequestCost = sentTokens + 2200; // rough budget
+
+    // Final Synthesis - Shared Analysis Result
     if (modes.includes("quick") || modes.includes("summary")) {
-      onProgress({ stage: "synthesis", mode: "summary" });
-      reports.quick = await ai.generateJSON({ 
-        system: SYSTEM, data: finalRepresentation, schemaHint: SUMMARY_REPORT_HINT, maxOutputTokens: 1000,
-        mock: () => JSON.stringify({ summary: "Mock Summary", findings: [], entities: [] }),
-        instruction: `FINAL SYNTHESIS (SUMMARY MODE): Generate a compact summary report from this evidence map. Focus on the overview, major points, important entities, and conclusion.${focus ? " Focus: " + focus : ""}` 
-      }, SummaryReport);
+      const cached = getReport(docHash, "summary");
+      if (cached) {
+        reports.quick = cached;
+      } else {
+        try {
+          globalBudget.reserveTokens(estimatedRequestCost);
+          onProgress({ stage: "synthesis", mode: "summary" });
+          reports.quick = await ai.generateJSON({ 
+            system: SYSTEM, data: evidenceJson, schemaHint: SUMMARY_REPORT_HINT, maxOutputTokens: 1000,
+            mock: () => JSON.stringify({ summary: "Mock Summary", findings: [], entities: [] }),
+            instruction: `FINAL SYNTHESIS (SUMMARY MODE): Generate a compact summary report from this evidence map. Focus on the overview, major points, important entities, and conclusion.${focus ? " Focus: " + focus : ""}` 
+          }, SummaryReport);
+          setReport(docHash, "summary", reports.quick);
+        } catch (e) {
+          if (e.code === "BUDGET_EXHAUSTED" || e.code === "RATE_LIMITED" || e.code === "PROVIDER_REJECTED_REQUEST") {
+            reports.quick = { error: "LLM synthesis unavailable", localDataAvailable: true, msg: e.message };
+          } else throw e;
+        }
+      }
     }
     
     if (modes.includes("deep")) {
-      onProgress({ stage: "synthesis", mode: "deep" });
-      reports.deep = await ai.generateJSON({ 
-        system: SYSTEM, data: finalRepresentation, schemaHint: REPORT_HINT, maxOutputTokens: 2200,
-        mock: () => JSON.stringify({ summary: "Mock Deep", findings: [], entities: [], events: [], contradictions: [], unresolved: [] }),
-        instruction: `FINAL SYNTHESIS (DEEP MODE): Generate a comprehensive intelligence report from this evidence map. Include key findings, entity relationships, timeline, contradictions, and unresolved mysteries.${focus ? " Focus: " + focus : ""}` 
-      }, Report);
+      const cached = getReport(docHash, "deep");
+      if (cached) {
+        reports.deep = cached;
+      } else {
+        try {
+          globalBudget.reserveTokens(estimatedRequestCost);
+          onProgress({ stage: "synthesis", mode: "deep" });
+          reports.deep = await ai.generateJSON({ 
+            system: SYSTEM, data: evidenceJson, schemaHint: REPORT_HINT, maxOutputTokens: 2200,
+            mock: () => JSON.stringify({ summary: "Mock Deep", findings: [], entities: [], events: [], contradictions: [], unresolved: [] }),
+            instruction: `FINAL SYNTHESIS (DEEP MODE): Generate a comprehensive intelligence report from this evidence map. Include key findings, entity relationships, timeline, contradictions, and unresolved mysteries.${focus ? " Focus: " + focus : ""}` 
+          }, Report);
+          setReport(docHash, "deep", reports.deep);
+        } catch (e) {
+          if (e.code === "BUDGET_EXHAUSTED" || e.code === "RATE_LIMITED" || e.code === "PROVIDER_REJECTED_REQUEST") {
+            reports.deep = { error: "LLM synthesis unavailable", localDataAvailable: true, msg: e.message };
+          } else throw e;
+        }
+      }
     }
 
     const primaryReport = reports.deep || reports.quick || Object.values(reports)[0];
-    const indicatesFailure = ["failed", "could not", "no content"].some(phrase => 
-      primaryReport.overview?.toLowerCase().includes(phrase) || 
-      primaryReport.conclusion?.toLowerCase().includes(phrase)
-    );
-    const hasData = (primaryReport.key_points && primaryReport.key_points.length > 0) || (primaryReport.people && primaryReport.people.length > 0);
-    
-    if ((indicatesFailure && !hasData) || extractionFailed) {
-      throw Object.assign(new Error("The AI provider could not process this document. Please try again."), { code: "PROVIDER" });
-    }
-
     onProgress({ stage: "done" });
     
-    return { report: primaryReport, reports, stats: st, chunks: 1, sentTokens, notes: [extraction] };
+    return { 
+      report: primaryReport, 
+      reports, 
+      stats: st, 
+      chunks: 1, 
+      sentTokens,
+      localProcessingMs: dim.localProcessingMs,
+      notes: [dim] // Expose local map instead of ChunkNotes LLM output
+    };
   }
 
   return withDeadline(guardedAnalyze(), remaining(), "analysis pipeline");
