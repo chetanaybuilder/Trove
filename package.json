@@ -13,7 +13,8 @@
     "start:local": "node --env-file=.env server/index.js",
     "db:migrate": "node --env-file=.env scripts/migrate.js",
     "test:pipeline": "node server/processing/selftest.js",
-    "test:load": "node server/processing/loadtest.js"
+    "test:load": "node server/processing/loadtest.js",
+    "test:resilience": "node server/processing/resilience-test.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",
