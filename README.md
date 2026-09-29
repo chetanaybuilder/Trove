@@ -8,10 +8,17 @@ Stack: React/Tailwind (frontend, in progress) · Node/Express · Neon PostgreSQL
 2. Create (or use) the default database.
 3. Click **Connect** and copy the **pooled** connection string.
 4. `cp .env.example .env` and paste it into `DATABASE_URL=`.
-5. `npm install && npm run db:migrate`
-6. `npm run dev:server`
 
-Migrations are plain SQL files in `migrations/`, applied in order and tracked in `schema_migrations`. Use a separate Neon branch for development and run the same command with the production `DATABASE_URL` to deploy schema changes.
+## AI setup (OpenRouter)
+1. Sign up at https://openrouter.ai and generate an API key.
+2. Paste the key into `OPENROUTER_API_KEY=` in your `.env`.
+3. OpenRouter handles model fallbacks automatically based on the `OPENROUTER_MODELS` comma-separated list.
+
+## Run
+1. `npm install && npm run db:migrate`
+2. `npm run dev:server`
+
+Migrating: plain SQL files in `migrations/`, applied in order and tracked in `schema_migrations`. Use a separate Neon branch for development and run the same command with the production `DATABASE_URL` to deploy schema changes.
 If `DATABASE_URL` is missing, the app stops with a clear message. The URL is only read server-side.
 
 ## Security notes
