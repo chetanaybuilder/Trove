@@ -53,10 +53,73 @@ function createStrictSchema(hintStr, name) {
 
 const SAFE_REQUEST_TOKEN_BUDGET = 6000;
 
-/** Call Groq API. Handles retries and circuit breaker. Strict admission control. */
-async function callGroq({ system, data, instruction, schemaHint, maxOutputTokens = 1500 }, attempt = 0) {
+function validateSchema(schemaObj) {
+  const check = (node) => {
+    if (node.type === "object") {
+      if (node.required) {
+        for (const req of node.required) {
+          if (!node.properties || !node.properties[req]) {
+            throw new Error(`SCHEMA_CONFIGURATION_ERROR: required field "${req}" is missing from properties`);
+          }
+        }
+      }
+      if (node.properties) {
+        for (const k in node.properties) check(node.properties[k]);
+      }
+    } else if (node.type === "array") {
+      if (!node.items || typeof node.items !== "object") {
+        throw new Error("SCHEMA_CONFIGURATION_ERROR: array items missing or invalid");
+      }
+      check(node.items);
+    }
+  };
+  check(schemaObj.schema);
+}
+
+/** Canonical Groq Request Builder */
+async function buildAndSendGroqRequest(model, system, data, instruction, maxTokens, jsonSchema, attempt, useStructuredOutput = true) {
+  const payload = {
+    model: model,
+    max_tokens: maxTokens, // FIXED: Groq uses max_tokens, not max_completion_tokens
+    temperature: 0.2,
+    messages: [
+      { role: "system", content: system + "\n\nCRITICAL OUTPUT REQUIREMENTS:\n1. OUTPUT ONLY JSON.\n2. Your response MUST strictly match the requested JSON schema.\n3. Every required property MUST be present. For an empty collection, return [] instead of omitting the property." },
+      { role: "user", content: instruction + "\n\n<document_data>\n" + data + "\n</document_data>" }
+    ]
+  };
+
+  if (useStructuredOutput) {
+    payload.response_format = { type: "json_schema", json_schema: jsonSchema };
+  } else {
+    payload.response_format = { type: "json_object" };
+    payload.messages[0].content += `\n\nREQUIRED JSON SCHEMA:\n${JSON.stringify(jsonSchema.schema)}`;
+  }
+
+  const timeoutMs = process.env.AI_CALL_TIMEOUT_MS ? Number(process.env.AI_CALL_TIMEOUT_MS) : 45000;
+
+  console.log(`[Groq] request validation\nmodel=${model}\noutputBudget=${maxTokens}\nschema=${jsonSchema.name}`);
+  
+  const startTime = Date.now();
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.AI_API_KEY}` },
+      body: JSON.stringify(payload),
+    });
+    
+    return { res, elapsed: Date.now() - startTime, payload };
+  } catch (e) {
+    const elapsed = Date.now() - startTime;
+    if (e.name === "TimeoutError") throw Object.assign(new Error("provider timeout"), { code: "NETWORK_ERROR", elapsed });
+    throw Object.assign(new Error("network error: " + e.message), { code: "NETWORK_ERROR", elapsed });
+  }
+}
+
+/** Call Groq API. Handles strict validation, error classification, and safe fallback. */
+async function callGroq({ system, data, instruction, schemaHint, maxOutputTokens = 1500, _fallbackMode = false }, attempt = 0) {
   if (Date.now() < downUntil) {
-    throw Object.assign(new Error("circuit breaker open"), { code: "PROVIDER" });
+    throw Object.assign(new Error("circuit breaker open"), { code: "PROVIDER_REJECTED_REQUEST" });
   }
 
   const model = process.env.GROQ_MODEL || process.env.AI_MODEL || "openai/gpt-oss-120b";
@@ -68,91 +131,73 @@ async function callGroq({ system, data, instruction, schemaHint, maxOutputTokens
   if (estimatedTotal > SAFE_REQUEST_TOKEN_BUDGET) {
     throw Object.assign(new Error(`Token budget exceeded: ${estimatedTotal} > ${SAFE_REQUEST_TOKEN_BUDGET}`), { code: "REQUEST_TOO_LARGE" });
   }
-
-  const dynamicTimeout = Math.round(Math.min(60000, 15000 + (estimatedInputTokens / 1000) * 1000));
-  const timeoutMs = process.env.AI_CALL_TIMEOUT_MS ? Number(process.env.AI_CALL_TIMEOUT_MS) : dynamicTimeout;
   
   const schemaName = schemaHint.includes("topics") ? "Report" : "ChunkNotes";
   const jsonSchema = createStrictSchema(schemaHint, schemaName);
   
-  let res;
-  const startTime = Date.now();
   try {
-    res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST", 
-      signal: AbortSignal.timeout(timeoutMs),
-      headers: { 
-        "Content-Type": "application/json", 
-        "Authorization": `Bearer ${process.env.AI_API_KEY}` 
-      },
-      body: JSON.stringify({
-        model: model,
-        response_format: { type: "json_schema", json_schema: jsonSchema },
-        max_completion_tokens: maxOutputTokens,
-        temperature: 0.2,
-        messages: [
-          { role: "system", content: system + "\n\nCRITICAL OUTPUT REQUIREMENTS:\n1. OUTPUT ONLY JSON. Do not return markdown, ```json, or commentary.\n2. Your response MUST be a JSON object matching the provided schema.\n3. Every required property MUST be present. Never omit a property because there is no information.\n4. For an empty collection, return [] instead of omitting the property.\n5. Do not invent facts to fill an empty section." },
-          { role: "user", content: instruction + "\n\n<document_data>\n" + data + "\n</document_data>" }
-        ]
-      }),
-    });
+    validateSchema(jsonSchema);
   } catch (e) {
-    const elapsed = Date.now() - startTime;
-    if (e.name === "TimeoutError") {
-      console.warn(`Groq API call timed out after ${elapsed}ms (limit: ${timeoutMs}ms). Model: ${model}.`);
-      if (attempt < 1) return callGroq({ system, data, instruction, schemaHint, maxOutputTokens }, attempt + 1);
-      recordFailure();
-      throw Object.assign(new Error("timed out"), { code: "TIMEOUT" });
+    console.error(`[Groq] SCHEMA INVALID\nreason=${e.message}`);
+    throw Object.assign(e, { code: "SCHEMA_INVALID" });
+  }
+  
+  let result;
+  try {
+    result = await buildAndSendGroqRequest(model, system, data, instruction, maxOutputTokens, jsonSchema, attempt, !_fallbackMode);
+  } catch (err) {
+    if (err.code === "NETWORK_ERROR" && attempt < 2) {
+      console.warn(`Groq network error, retrying (${attempt + 1})...`);
+      return callGroq({ system, data, instruction, schemaHint, maxOutputTokens, _fallbackMode }, attempt + 1);
     }
-    console.error(`Groq network error after ${elapsed}ms:`, e.message);
     recordFailure();
-    throw Object.assign(new Error("provider error"), { code: "PROVIDER" });
+    throw err;
   }
 
+  const { res, elapsed, payload } = result;
+
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403) throw Object.assign(new Error("auth failed"), { code: "AUTH" });
     const errText = await res.text().catch(() => "unknown");
-    if (res.status === 404) throw Object.assign(new Error("model/configuration error"), { code: "MODEL_ERROR" });
+    console.error(`[Groq] REQUEST FAILED\nstatus=${res.status}\nmessage=${errText.slice(0, 300)}`);
     
-    // 413: request too large. Do NOT retry identical payload.
-    if (res.status === 413) {
-      throw Object.assign(new Error("provider rejected size"), { code: "REQUEST_TOO_LARGE" });
-    }
+    if (res.status === 401 || res.status === 403) throw Object.assign(new Error("auth failed"), { code: "AUTH_ERROR" });
+    if (res.status === 404) throw Object.assign(new Error("model missing"), { code: "MODEL_ERROR" });
+    
+    // 413: Request too large. Never retry identical payload.
+    if (res.status === 413) throw Object.assign(new Error("payload too large"), { code: "REQUEST_TOO_LARGE" });
     
     if (res.status === 400) {
-      if (errText.includes("json_validate_failed") || errText.includes("max completion tokens reached") || errText.includes("failed_generation")) {
-        // Only perform ONE controlled recovery attempt for schema validation errors
-        if (attempt === 0) {
-          console.warn(`Recovering JSON generation (attempt 1)...`);
-          return callGroq({ system, data, instruction, schemaHint, maxOutputTokens }, 1);
-        }
+      // If the provider rejects structured outputs natively, fallback to json_object safely.
+      if (!_fallbackMode && (errText.includes("response_format") || errText.includes("json_schema") || errText.includes("schema") || errText.includes("max_tokens") || errText.includes("max_completion_tokens"))) {
+        console.warn(`[Groq] Provider rejected strict payload. Falling back to json_object...`);
+        return callGroq({ system, data, instruction, schemaHint, maxOutputTokens, _fallbackMode: true }, 0);
       }
-      throw Object.assign(new Error("request/schema error"), { code: "MALFORMED" });
+      // Do NOT retry malformed requests unchanged.
+      throw Object.assign(new Error("malformed request: " + errText), { code: "MALFORMED_REQUEST", details: errText });
     }
     
-    // 429/5xx: Genuinely transient errors.
     if (res.status === 429 || res.status >= 500) {
       if (attempt < 2) {
         const retryAfter = res.headers.get("retry-after");
         const delay = retryAfter ? (isNaN(Number(retryAfter)) ? 1000 : Number(retryAfter) * 1000) : 1000 * Math.pow(2, attempt);
         await sleep(delay);
-        return callGroq({ system, data, instruction, schemaHint, maxOutputTokens }, attempt + 1);
+        return callGroq({ system, data, instruction, schemaHint, maxOutputTokens, _fallbackMode }, attempt + 1);
       }
       recordFailure();
-      if (res.status === 429) throw Object.assign(new Error(`rate limit ${res.status}`), { code: "RATE_LIMIT", status: res.status });
-      throw Object.assign(new Error(`provider error ${res.status}`), { code: "PROVIDER", status: res.status });
+      if (res.status === 429) throw Object.assign(new Error(`rate limited`), { code: "RATE_LIMITED", status: res.status });
+      throw Object.assign(new Error(`provider error ${res.status}`), { code: "PROVIDER_REJECTED_REQUEST", status: res.status });
     }
     
     recordFailure();
-    throw Object.assign(new Error("provider error"), { code: "PROVIDER", status: res.status });
+    throw Object.assign(new Error("unknown provider error"), { code: "UNKNOWN_PROVIDER_ERROR", status: res.status });
   }
   
-  failures = 0; // reset on success
+  failures = 0;
   const j = await res.json();
   
   if (j.choices?.[0]?.finish_reason === "length") {
     if (attempt === 0) {
-      return callGroq({ system, data, instruction, schemaHint, maxOutputTokens }, 1);
+      return callGroq({ system, data, instruction, schemaHint, maxOutputTokens, _fallbackMode }, 1);
     }
   }
 
@@ -163,17 +208,18 @@ export function getProvider() {
   if (!process.env.AI_API_KEY && !process.env.TROVE_MOCK) throw Object.assign(new Error("not configured"), { code: "CONFIG" });
   
   return {
-    // Validates against a zod schema; retries once on malformed output.
     async generateJSON(args, schema) {
       for (let attempt = 0; attempt < 2; attempt++) {
         const raw = process.env.TROVE_MOCK ? args.mock() : await gate.run(() => callGroq(args));
         try { 
           return schema.parse(JSON.parse(String(raw).replace(/^```json|```$/g, "").trim())); 
         } catch (e) { 
-          if (attempt === 1) console.error("JSON parse/validation error on attempt 2", e);
+          if (attempt === 1) {
+            console.error(`[Groq] JSON PARSE FAILED\npreview=${String(raw).slice(0, 300)}`);
+          }
         }
       }
-      throw Object.assign(new Error("malformed"), { code: "MALFORMED" });
+      throw Object.assign(new Error("malformed JSON output"), { code: "MALFORMED_JSON_OUTPUT" });
     },
   };
 }
