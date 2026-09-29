@@ -81,10 +81,19 @@ export async function analyze(raw, { modes = ["quick"], focus = "" } = {}, onPro
     const text = normalize(raw);
     if (text.length < 200) throw Object.assign(new Error("too short"), { code: "TOO_SHORT" });
     const ai = getProvider(), st = stats(text);
-    
-    // Both modes use the same budget approach to ensure shared extraction works on the full needed context.
+    // Both modes use the same budget approach.
+    // We aggressively use local JS intelligence (chunker.js) to score and compress the raw document 
+    // down to a very compact map so the LLM only gets the most information-dense segments.
+    // 20K lines -> ~12,000 tokens -> ~3 chunks (3 LLM calls)
+    // 50K lines -> ~16,000 tokens -> ~4 chunks (4 LLM calls)
+    // 100K lines -> ~24,000 tokens -> ~6 chunks (6 LLM calls)
     const isDeep = modes.includes("deep");
-    const budget = isDeep ? Number(process.env.DEEP_BUDGET_TOKENS || 250000) : Number(process.env.QUICK_BUDGET_TOKENS || 40000);
+    let budget = isDeep ? 12000 : 6000; // defaults for <20K lines
+    
+    if (st.lines >= 100000) budget = isDeep ? 24000 : 12000;
+    else if (st.lines >= 50000) budget = isDeep ? 16000 : 8000;
+    else if (st.lines >= 20000) budget = isDeep ? 12000 : 6000;
+
     const body = (await compress(text, budget)).text;
     const sentTokens = estimateTokens(body);
 
