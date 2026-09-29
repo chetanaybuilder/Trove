@@ -79,17 +79,36 @@ export async function compress(text, budgetTokens) {
     return { i, s, t: estimateTokens(p) }; 
   });
   
-  const total = items.reduce((a, x) => a + x.t, 0), per = total / 60, keep = new Set();
-  let b = [], bt = 0;
+  const total = items.reduce((a, x) => a + x.t, 0);
   
-  // Proportional allocation ensures we sample evenly across the document's timeline
+  // Estimate average block size to determine how many blocks we can afford
+  const avgBlockTokens = items.length > 0 ? total / items.length : 375;
+  const affordableBlocks = Math.max(1, Math.floor(budgetTokens / avgBlockTokens));
+  
+  // Divide document into 'affordableBlocks' segments to ensure even chronological sampling
+  const segments = Math.min(affordableBlocks, 60); 
+  const per = total / segments;
+  const keep = new Set();
+  
+  let b = [], bt = 0;
+  let globalUsed = 0;
+  
   const flush = async () => { 
-    const cap = budgetTokens * (bt / total); 
-    let used = 0; 
+    if (globalUsed >= budgetTokens) { b = []; bt = 0; return; }
+    
+    // Proportional cap for this specific segment, plus whatever we have left globally
+    const cap = Math.min(budgetTokens - globalUsed, budgetTokens * (bt / total)); 
+    let localUsed = 0; 
+    
     for (const x of b.sort((p, q) => q.s - p.s)) { 
-      if (used > 0 && used + x.t > cap) continue; 
+      // Always allow at least ONE block if we haven't hit the global budget,
+      // UNLESS the block itself pushes us way over the global budget and we've already used some.
+      if (localUsed > 0 && localUsed + x.t > cap) continue; 
+      if (globalUsed + x.t > budgetTokens) continue; // Hard global cap
+      
       keep.add(x.i); 
-      used += x.t; 
+      localUsed += x.t;
+      globalUsed += x.t;
     } 
     b = []; 
     bt = 0; 
