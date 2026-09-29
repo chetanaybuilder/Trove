@@ -18,18 +18,12 @@ function recordFailure() {
 }
 
 /** Call Groq API. Handles retries and circuit breaker. */
-async function callGroq({ system, data, instruction, schemaHint }, attempt = 0) {
+async function callGroq({ system, data, instruction, schemaHint }, attempt = 0, forceModel = null) {
   if (Date.now() < downUntil) {
     throw Object.assign(new Error("circuit breaker open"), { code: "PROVIDER" });
   }
 
-  let model = process.env.AI_MODEL || "llama-3.1-8b-instant";
-  
-  // Safety override: if Render dashboard still has the retired/unavailable models, force the safe fallback
-  if (model === "openai/gpt-oss-120b" || model === "llama-3.3-70b-versatile") {
-    console.warn(`Overriding unavailable model '${model}' with 'llama-3.1-8b-instant'. Please update Render dashboard.`);
-    model = "llama-3.1-8b-instant";
-  }
+  const model = forceModel || process.env.GROQ_MODEL || process.env.AI_MODEL || "llama-3.1-8b-instant";
   
   // Base 15s + ~1s per 1000 tokens, capped at ~30s
   const estTokens = (system.length + data.length + instruction.length) / 4;
@@ -61,7 +55,7 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0) 
     if (e.name === "TimeoutError") {
       console.warn(`Groq API call timed out after ${elapsed}ms (configured limit: ${timeoutMs}ms). Model: ${model}, Size: ~${estTokens} tokens.`);
       if (attempt === 0) {
-        return callGroq({ system, data, instruction, schemaHint }, attempt + 1);
+        return callGroq({ system, data, instruction, schemaHint }, attempt + 1, forceModel);
       }
       recordFailure();
       throw Object.assign(new Error("timed out"), { code: "TIMEOUT" });
@@ -77,7 +71,14 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0) 
       throw Object.assign(new Error("auth failed"), { code: "AUTH" });
     }
     if (res.status === 404) {
-      // Model not found, do not retry
+      // Model not found. Fallback to a safe secondary model on the first attempt
+      if (attempt === 0) {
+        const secondary = "llama-3.1-8b-instant";
+        if (model !== secondary) {
+          console.warn(`Groq model '${model}' not found (404). Falling back to secondary model '${secondary}'.`);
+          return callGroq({ system, data, instruction, schemaHint }, attempt + 1, secondary);
+        }
+      }
       throw Object.assign(new Error("model not found"), { code: "MODEL_ERROR" });
     }
     if (res.status === 429 || res.status === 503) {
@@ -85,7 +86,7 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0) 
         const retryAfter = res.headers.get("retry-after");
         const delay = retryAfter ? (isNaN(Number(retryAfter)) ? 500 : Number(retryAfter) * 1000) : 500;
         await sleep(delay);
-        return callGroq({ system, data, instruction, schemaHint }, attempt + 1);
+        return callGroq({ system, data, instruction, schemaHint }, attempt + 1, forceModel);
       }
       const errText = await res.text().catch(() => "unknown");
       console.warn(`Groq returned ${res.status}: ${errText.slice(0, 200)}`);
