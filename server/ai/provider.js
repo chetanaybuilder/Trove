@@ -17,13 +17,28 @@ function recordFailure() {
   }
 }
 
+const FALLBACK_MODELS = [
+  process.env.GROQ_MODEL || process.env.AI_MODEL || "llama-3.3-70b-versatile",
+  "llama-3.1-8b-instant",
+  "mixtral-8x7b-32768",
+  "gemma2-9b-it",
+  "llama3-8b-8192",
+  "llama3-70b-8192"
+];
+
 /** Call Groq API. Handles retries and circuit breaker. */
-async function callGroq({ system, data, instruction, schemaHint }, attempt = 0, forceModel = null) {
+async function callGroq({ system, data, instruction, schemaHint }, attempt = 0, modelIndex = 0) {
   if (Date.now() < downUntil) {
     throw Object.assign(new Error("circuit breaker open"), { code: "PROVIDER" });
   }
 
-  const model = forceModel || process.env.GROQ_MODEL || process.env.AI_MODEL || "llama-3.1-8b-instant";
+  // Deduplicate the array so we don't try the same configured model twice if it matches a fallback
+  const uniqueModels = Array.from(new Set(FALLBACK_MODELS)).filter(Boolean);
+  const model = uniqueModels[modelIndex];
+  
+  if (!model) {
+    throw Object.assign(new Error("model not found"), { code: "MODEL_ERROR" });
+  }
   
   // Base 15s + ~1s per 1000 tokens, capped at ~30s
   const estTokens = (system.length + data.length + instruction.length) / 4;
@@ -55,7 +70,7 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0, 
     if (e.name === "TimeoutError") {
       console.warn(`Groq API call timed out after ${elapsed}ms (configured limit: ${timeoutMs}ms). Model: ${model}, Size: ~${estTokens} tokens.`);
       if (attempt === 0) {
-        return callGroq({ system, data, instruction, schemaHint }, attempt + 1, forceModel);
+        return callGroq({ system, data, instruction, schemaHint }, attempt + 1, modelIndex);
       }
       recordFailure();
       throw Object.assign(new Error("timed out"), { code: "TIMEOUT" });
@@ -71,13 +86,10 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0, 
       throw Object.assign(new Error("auth failed"), { code: "AUTH" });
     }
     if (res.status === 404) {
-      // Model not found. Fallback to a safe secondary model on the first attempt
-      if (attempt === 0) {
-        const secondary = "llama-3.1-8b-instant";
-        if (model !== secondary) {
-          console.warn(`Groq model '${model}' not found (404). Falling back to secondary model '${secondary}'.`);
-          return callGroq({ system, data, instruction, schemaHint }, attempt + 1, secondary);
-        }
+      // Model not found. Fallback to the next model in the list
+      if (modelIndex < uniqueModels.length - 1) {
+        console.warn(`Groq model '${model}' not found (404). Falling back to '${uniqueModels[modelIndex + 1]}'.`);
+        return callGroq({ system, data, instruction, schemaHint }, attempt, modelIndex + 1);
       }
       throw Object.assign(new Error("model not found"), { code: "MODEL_ERROR" });
     }
@@ -86,7 +98,7 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0, 
         const retryAfter = res.headers.get("retry-after");
         const delay = retryAfter ? (isNaN(Number(retryAfter)) ? 500 : Number(retryAfter) * 1000) : 500;
         await sleep(delay);
-        return callGroq({ system, data, instruction, schemaHint }, attempt + 1, forceModel);
+        return callGroq({ system, data, instruction, schemaHint }, attempt + 1, modelIndex);
       }
       const errText = await res.text().catch(() => "unknown");
       console.warn(`Groq returned ${res.status}: ${errText.slice(0, 200)}`);
