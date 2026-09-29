@@ -25,6 +25,7 @@ async function callOpenRouter({ system, data, instruction, schemaHint }) {
     const timeoutMs = process.env.AI_CALL_TIMEOUT_MS ? Number(process.env.AI_CALL_TIMEOUT_MS) : dynamicTimeout;
     
     let res;
+    const startTime = Date.now();
     try {
       res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST", 
@@ -43,11 +44,12 @@ async function callOpenRouter({ system, data, instruction, schemaHint }) {
         }),
       });
     } catch (e) {
+      const elapsed = Date.now() - startTime;
       if (e.name === "TimeoutError") {
-        console.warn(`OpenRouter API call timed out after ${timeoutMs}ms`);
+        console.warn(`OpenRouter API call timed out after ${elapsed}ms (configured limit: ${timeoutMs}ms). Models: ${models.join(",")}, Size: ~${estTokens} tokens.`);
         throw Object.assign(new Error("timed out"), { code: "TIMEOUT" });
       }
-      console.error("OpenRouter network error:", e.message);
+      console.error(`OpenRouter network error after ${elapsed}ms:`, e.message, `Models: ${models.join(",")}, Size: ~${estTokens} tokens.`);
       throw Object.assign(new Error("provider error"), { code: "PROVIDER" });
     }
 
