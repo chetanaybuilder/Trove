@@ -23,7 +23,7 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0) 
     throw Object.assign(new Error("circuit breaker open"), { code: "PROVIDER" });
   }
 
-  const model = process.env.AI_MODEL || "llama-3.3-70b-versatile";
+  const model = process.env.AI_MODEL || "llama-3.1-8b-instant";
   
   // Base 15s + ~1s per 1000 tokens, capped at ~30s
   const estTokens = (system.length + data.length + instruction.length) / 4;

@@ -12,7 +12,7 @@ Stack: React/Tailwind (frontend, in progress) · Node/Express · Neon PostgreSQL
 ## AI setup (Groq)
 1. Sign up at https://console.groq.com and generate an API key.
 2. Paste the key into `AI_API_KEY=` in your `.env`.
-3. Set your preferred model in `AI_MODEL=` (e.g. `openai/gpt-oss-120b`). If this ever 404s, check console.groq.com/docs/models for the current list.
+3. Set your preferred model in `AI_MODEL=` (e.g. `llama-3.1-8b-instant`). If this ever 404s, check console.groq.com/docs/models for the current list.
 
 ## Run
 1. `npm install && npm run db:migrate`
