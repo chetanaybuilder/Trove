@@ -70,6 +70,10 @@ async function callGroq({ system, data, instruction, schemaHint }, attempt = 0) 
       // Auth failed, do not retry
       throw Object.assign(new Error("auth failed"), { code: "AUTH" });
     }
+    if (res.status === 404) {
+      // Model not found, do not retry
+      throw Object.assign(new Error("model not found"), { code: "MODEL_ERROR" });
+    }
     if (res.status === 429 || res.status === 503) {
       if (attempt === 0) {
         const retryAfter = res.headers.get("retry-after");
