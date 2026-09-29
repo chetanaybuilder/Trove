@@ -15,7 +15,7 @@ const REPORT_HINT = '{"title":"","overview":"","key_points":[],"topics":[{"name"
 const MAX_SYNTH_TOKENS = 12000;
 const notesTokens = (n) => Math.ceil(JSON.stringify(n).length / 4);
 
-const OVERALL_DEADLINE_MS = Number(process.env.ANALYSIS_DEADLINE_MS || 19000);
+const OVERALL_DEADLINE_MS = Number(process.env.ANALYSIS_DEADLINE_MS || 60000);
 const MAX_CHUNKS_QUICK = Number(process.env.MAX_CHUNKS_QUICK || 4);
 const MAX_CHUNKS_DEEP = Number(process.env.MAX_CHUNKS_DEEP || 8);
 
@@ -73,17 +73,16 @@ export async function analyze(raw, { mode = "quick", focus = "" } = {}, onProgre
       }
     }));
 
+    const failedNotes = notes.filter(n => n._failed);
     const successfulNotes = notes.filter(n => !n._failed);
-    const failedCount = notes.length - successfulNotes.length;
+    const failedCount = failedNotes.length;
     const totalCount = chunks.length;
 
-    if (failedCount === totalCount) {
-      throw Object.assign(new Error("The AI provider could not process this document. Please try again."), { code: "PROVIDER" });
-    }
-
     const MAX_FAIL_RATE = 0.4;
-    if (failedCount / totalCount > MAX_FAIL_RATE) {
-      throw Object.assign(new Error("The AI provider could not process this document. Please try again."), { code: "PROVIDER" });
+    if (failedCount === totalCount || failedCount / totalCount > MAX_FAIL_RATE) {
+      const code = failedNotes.every(n => n.error?.code === "TIMEOUT") ? "TIMEOUT" :
+                   failedNotes.every(n => n.error?.code === "OVERLOAD") ? "OVERLOAD" : "PROVIDER";
+      throw Object.assign(new Error("The AI provider could not process this document. Please try again."), { code });
     }
 
     const chunkNotes = successfulNotes;

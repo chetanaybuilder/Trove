@@ -6,8 +6,6 @@ class Sem { constructor(n) { this.n = n; this.q = []; }
 const gate = new Sem(Number(process.env.AI_MAX_CONCURRENCY || 2)); // global cap on simultaneous provider calls
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const PER_CALL_TIMEOUT = Number(process.env.AI_CALL_TIMEOUT_MS || 8000);
-
 /** Parse OPENROUTER_MODELS env var to get priority model array */
 function getModels() {
   if (process.env.OPENROUTER_MODELS) {
@@ -21,11 +19,16 @@ async function callOpenRouter({ system, data, instruction, schemaHint }) {
   try {
     const models = getModels();
     
+    // Base 20s + ~1s per 1000 tokens, capped at 45s
+    const estTokens = (system.length + data.length + instruction.length) / 4;
+    const dynamicTimeout = Math.round(Math.min(45000, 20000 + (estTokens / 1000) * 1000));
+    const timeoutMs = process.env.AI_CALL_TIMEOUT_MS ? Number(process.env.AI_CALL_TIMEOUT_MS) : dynamicTimeout;
+    
     let res;
     try {
       res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST", 
-        signal: AbortSignal.timeout(PER_CALL_TIMEOUT),
+        signal: AbortSignal.timeout(timeoutMs),
         headers: { 
           "Content-Type": "application/json", 
           "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}` 
@@ -41,7 +44,7 @@ async function callOpenRouter({ system, data, instruction, schemaHint }) {
       });
     } catch (e) {
       if (e.name === "TimeoutError") {
-        console.warn("OpenRouter API call timed out after 8s");
+        console.warn(`OpenRouter API call timed out after ${timeoutMs}ms`);
         throw Object.assign(new Error("timed out"), { code: "TIMEOUT" });
       }
       console.error("OpenRouter network error:", e.message);
@@ -52,7 +55,7 @@ async function callOpenRouter({ system, data, instruction, schemaHint }) {
       if (res.status === 429 || res.status === 503) {
         const errText = await res.text().catch(() => "unknown");
         console.warn(`OpenRouter returned ${res.status}: ${errText.slice(0, 200)}`);
-        throw Object.assign(new Error(`rate/overloaded ${res.status}`), { code: "RATE_LIMIT", status: res.status });
+        throw Object.assign(new Error(`rate/overloaded ${res.status}`), { code: "OVERLOAD", status: res.status });
       }
       const errText = await res.text().catch(() => "unknown");
       console.error(`OpenRouter API Error: ${res.status} - ${errText}`);
