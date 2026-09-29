@@ -76,43 +76,63 @@ function validateSchema(schemaObj) {
   check(schemaObj.schema);
 }
 
-/** Canonical Groq Request Builder */
-async function buildAndSendGroqRequest(model, system, data, instruction, maxTokens, jsonSchema, attempt, useStructuredOutput = true) {
+/** Native Structured Output Builder */
+async function buildNativeStructuredRequest(model, system, data, instruction, maxTokens, jsonSchema, timeoutMs) {
   const payload = {
     model: model,
-    max_tokens: maxTokens, // FIXED: Groq uses max_tokens, not max_completion_tokens
+    max_tokens: maxTokens,
     temperature: 0.2,
+    response_format: { type: "json_schema", json_schema: jsonSchema },
     messages: [
       { role: "system", content: system + "\n\nCRITICAL OUTPUT REQUIREMENTS:\n1. OUTPUT ONLY JSON.\n2. Your response MUST strictly match the requested JSON schema.\n3. Every required property MUST be present. For an empty collection, return [] instead of omitting the property." },
       { role: "user", content: instruction + "\n\n<document_data>\n" + data + "\n</document_data>" }
     ]
   };
 
-  if (useStructuredOutput) {
-    payload.response_format = { type: "json_schema", json_schema: jsonSchema };
-  } else {
-    payload.response_format = { type: "json_object" };
-    payload.messages[0].content += `\n\nREQUIRED JSON SCHEMA:\n${JSON.stringify(jsonSchema.schema)}`;
-  }
-
-  const timeoutMs = process.env.AI_CALL_TIMEOUT_MS ? Number(process.env.AI_CALL_TIMEOUT_MS) : 45000;
-
-  console.log(`[Groq] request validation\nmodel=${model}\noutputBudget=${maxTokens}\nschema=${jsonSchema.name}`);
+  console.log(`[Groq] MODE=NATIVE_STRUCTURED\nschema=${jsonSchema.name}`);
   
   const startTime = Date.now();
   try {
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      signal: AbortSignal.timeout(timeoutMs),
+      method: "POST", signal: AbortSignal.timeout(timeoutMs),
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.AI_API_KEY}` },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(payload)
     });
-    
     return { res, elapsed: Date.now() - startTime, payload };
   } catch (e) {
-    const elapsed = Date.now() - startTime;
-    if (e.name === "TimeoutError") throw Object.assign(new Error("provider timeout"), { code: "NETWORK_ERROR", elapsed });
-    throw Object.assign(new Error("network error: " + e.message), { code: "NETWORK_ERROR", elapsed });
+    throw Object.assign(new Error("network error: " + e.message), { code: "NETWORK_ERROR", elapsed: Date.now() - startTime });
+  }
+}
+
+/** Pure JSON-Object Fallback Builder (No Schema Object) */
+async function buildJsonObjectRequest(model, system, data, instruction, maxTokens, jsonSchema, timeoutMs) {
+  // Extract keys dynamically without embedding the JSON schema syntax
+  const keys = Object.keys(jsonSchema.schema.properties).join(", ");
+  const fallbackSystem = system + `\n\nCRITICAL OUTPUT REQUIREMENTS:\n1. Return ONLY valid JSON.\n2. Do not use markdown.\n3. Do not use \`\`\`json.\n4. Do not write explanations or commentary.\n5. Return a JSON object with exactly these keys: ${keys}.\n6. Every key must be present. Use [] when there are no items, or "" for empty strings.\n7. No additional keys.`;
+
+  const payload = {
+    model: model,
+    max_tokens: maxTokens,
+    temperature: 0.2,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: fallbackSystem },
+      { role: "user", content: instruction + "\n\n<document_data>\n" + data + "\n</document_data>" }
+    ]
+  };
+
+  console.log(`[Groq] FALLBACK REQUEST\nmode=json_object\nhasSchema=false\nresponseFormatType=json_object\nschemaIncluded=false`);
+  
+  const startTime = Date.now();
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST", signal: AbortSignal.timeout(timeoutMs),
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.AI_API_KEY}` },
+      body: JSON.stringify(payload)
+    });
+    return { res, elapsed: Date.now() - startTime, payload };
+  } catch (e) {
+    throw Object.assign(new Error("network error: " + e.message), { code: "NETWORK_ERROR", elapsed: Date.now() - startTime });
   }
 }
 
@@ -142,9 +162,15 @@ async function callGroq({ system, data, instruction, schemaHint, maxOutputTokens
     throw Object.assign(e, { code: "SCHEMA_INVALID" });
   }
   
+  const timeoutMs = process.env.AI_CALL_TIMEOUT_MS ? Number(process.env.AI_CALL_TIMEOUT_MS) : 45000;
+
   let result;
   try {
-    result = await buildAndSendGroqRequest(model, system, data, instruction, maxOutputTokens, jsonSchema, attempt, !_fallbackMode);
+    if (!_fallbackMode) {
+      result = await buildNativeStructuredRequest(model, system, data, instruction, maxOutputTokens, jsonSchema, timeoutMs);
+    } else {
+      result = await buildJsonObjectRequest(model, system, data, instruction, maxOutputTokens, jsonSchema, timeoutMs);
+    }
   } catch (err) {
     if (err.code === "NETWORK_ERROR" && attempt < 2) {
       console.warn(`Groq network error, retrying (${attempt + 1})...`);
