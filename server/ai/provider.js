@@ -19,6 +19,8 @@ function recordFailure() {
 
 const FALLBACK_MODELS = [
   process.env.GROQ_MODEL || process.env.AI_MODEL,
+  "llama-4-maverick-17b-128e-instruct",
+  "llama-4-scout-17b-16e-instruct",
   "deepseek-r1-distill-llama-70b",
   "llama-3.3-70b-specdec",
   "llama-3.3-70b-versatile",
